@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+psycopg2-binary   # se usar PostgreSQL
+scikit-learn
+xgboost
+pandas
+numpy
