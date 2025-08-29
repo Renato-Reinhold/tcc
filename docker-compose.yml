@@ -11,7 +11,5 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
+      - "3000:80"   # 3000 externo → 80 interno (Nginx)
     restart: always
