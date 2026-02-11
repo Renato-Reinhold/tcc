@@ -11,11 +11,20 @@ from app.data.sql_generator import SQLGenerator
 from app.data.pandas_executor import PandasExecutor
 from app.data.loader import DataLoader
 from app.data.metadata import extract_metadata
+from app.data.connectors import ConnectorFactory, DatabaseConnector
 from app.services.recommender import recommend_chart
 
 router = APIRouter()
 
 # ============ Pydantic Models para Request/Response ============
+
+class DatabaseConnectionRequest(BaseModel):
+    db_type: str  # postgresql, mysql, sqlserver, sqlite, oracle
+    host: Optional[str] = None
+    port: Optional[str] = None
+    database: str
+    user: Optional[str] = None
+    password: Optional[str] = None
 
 class AggregationRequest(BaseModel):
     field: str
@@ -54,9 +63,152 @@ class ExecutionResponse(BaseModel):
     recommendation: ChartRecommendationResponse
     execution_time_ms: float
 
-# ============ Endpoints ============
+# ============ Endpoints de Gerenciamento de Conexões ============
 
-@router.post("/execute")
+# Armazenar conexão ativa
+_active_connector: Optional[DatabaseConnector] = None
+
+@router.get("/databases/supported")
+async def get_supported_databases():
+    """Retornar lista de bancos de dados suportados"""
+    return {
+        "supported": [
+            {
+                "type": "postgresql",
+                "name": "PostgreSQL",
+                "default_port": "5432",
+                "description": "Banco relacional open-source"
+            },
+            {
+                "type": "mysql",
+                "name": "MySQL",
+                "default_port": "3306",
+                "description": "Banco relacional popular"
+            },
+            {
+                "type": "sqlserver",
+                "name": "SQL Server",
+                "default_port": "1433",
+                "description": "Banco relacional da Microsoft"
+            },
+            {
+                "type": "sqlite",
+                "name": "SQLite",
+                "default_port": None,
+                "description": "Banco de arquivo embutido"
+            },
+            {
+                "type": "oracle",
+                "name": "Oracle Database",
+                "default_port": "1521",
+                "description": "Banco relacional empresarial"
+            }
+        ]
+    }
+
+@router.post("/databases/connect")
+async def connect_database(request: DatabaseConnectionRequest):
+    """Estabelecer conexão com um banco de dados"""
+    global _active_connector
+    
+    try:
+        # Preparar parâmetros de conexão
+        params = {
+            "database": request.database,
+        }
+        
+        if request.host:
+            params["host"] = request.host
+        if request.port:
+            params["port"] = request.port
+        if request.user:
+            params["user"] = request.user
+        if request.password:
+            params["password"] = request.password
+        
+        # Criar conector
+        connector = ConnectorFactory.create(request.db_type, params)
+        
+        # Testar conexão
+        if not connector.test_connection():
+            raise HTTPException(
+                status_code=400,
+                detail="Falha ao conectar com o banco de dados"
+            )
+        
+        # Salvar como conexão ativa
+        _active_connector = connector
+        
+        return {
+            "success": True,
+            "message": "Conectado com sucesso",
+            "db_type": request.db_type,
+            "database": request.database
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Erro ao conectar: {str(e)}"
+        )
+
+@router.get("/databases/tables")
+async def get_connected_tables():
+    """Obter tabelas do banco conectado"""
+    global _active_connector
+    
+    if not _active_connector:
+        raise HTTPException(
+            status_code=400,
+            detail="Nenhum banco de dados conectado"
+        )
+    
+    try:
+        tables = _active_connector.get_tables()
+        
+        # Obter metadados das tabelas
+        table_metadata = []
+        for table_name in tables:
+            columns = _active_connector.get_table_columns(table_name)
+            table_metadata.append({
+                "name": table_name,
+                "columns": columns,
+                "row_count": 0  # Será preenchido sob demanda
+            })
+        
+        return {
+            "tables": table_metadata
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter tabelas: {str(e)}"
+        )
+
+@router.get("/databases/table/{table_name}/data")
+async def get_connected_table_data(table_name: str, limit: int = 100, offset: int = 0):
+    """Obter dados de uma tabela do banco conectado"""
+    global _active_connector
+    
+    if not _active_connector:
+        raise HTTPException(
+            status_code=400,
+            detail="Nenhum banco de dados conectado"
+        )
+    
+    try:
+        data = _active_connector.get_table_data(table_name, limit, offset)
+        data["success"] = True
+        return data
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao obter dados: {str(e)}"
+        )
+
+# ============ Endpoints de Execução ============
+
+
 async def execute_query(query_req: QueryModelRequest):
     """
     Fluxo Principal: 
