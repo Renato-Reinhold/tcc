@@ -1,9 +1,14 @@
+xgboost
 fastapi
 uvicorn
-pydantic
-sqlalchemy
-psycopg2-binary   # se usar PostgreSQL
-scikit-learn
-xgboost
 pandas
 numpy
+sqlalchemy
+psycopg2-binary
+matplotlib
+scikit-learn
+pydantic
+jupyter
+python-dotenv
+requests
+pytest

@@ -1,0 +1,115 @@
+version: "3.9"
+
+services:
+  # ========== DATABASE (PostgreSQL DEV) ==========
+  backend-db:
+    container_name: tcc-database-dev
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=tcc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - backend-data-dev:/var/lib/postgresql/data
+    networks:
+      - tcc-network-dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stdin_open: true
+    tty: true
+
+  # ========== BACKEND (DEV) ==========
+  backend:
+    container_name: tcc-backend-dev
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=backend-db
+      - DB_PORT=5432
+      - DB_NAME=tcc_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - PYTHONUNBUFFERED=1
+      - DEBUG=True
+    volumes:
+      - ./backend:/app
+      - backend-cache-dev:/app/.pytest_cache
+      - backend-pycache-dev:/app/__pycache__
+    working_dir: /app
+    # Sem command - usa ENTRYPOINT do Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - tcc-network-dev
+    depends_on:
+      backend-db:
+        condition: service_healthy
+    # Mostrar logs em tempo real
+    stdin_open: true
+    tty: true
+
+  # ========== FRONTEND (DEV) ==========
+  frontend:
+    container_name: tcc-frontend-dev
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        - VITE_BACKEND_URL=http://localhost:8000
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+      - NODE_ENV=development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - frontend-cache-dev:/app/.vite
+    working_dir: /app
+    # Usar npm run dev para Hot Module Replacement
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - tcc-network-dev
+    depends_on:
+      - backend
+    stdin_open: true
+    tty: true
+
+# ========== VOLUMES ==========
+volumes:
+  backend-data-dev:
+    driver: local
+  backend-cache-dev:
+    driver: local
+  backend-pycache-dev:
+    driver: local
+  frontend-cache-dev:
+    driver: local
+
+# ========== NETWORKS ==========
+networks:
+  tcc-network-dev:
+    driver: bridge

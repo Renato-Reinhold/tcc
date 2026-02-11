@@ -10,19 +10,39 @@ import { toast } from "@/hooks/use-toast";
 
 interface DataTableProps {
   data: ProcessedData;
+  tableName?: string;
+  initialColumns?: string[];
   onGenerateChart: (selectedColumns: string[]) => void;
   onBackToUpload: () => void;
 }
 
-export const DataTable = ({ data, onGenerateChart, onBackToUpload }: DataTableProps) => {
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+export const DataTable = ({ data, tableName, initialColumns = [], onGenerateChart, onBackToUpload }: DataTableProps) => {
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(initialColumns);
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 10;
 
-  const totalPages = Math.ceil(data.rows.length / rowsPerPage);
+  console.log("DataTable - Received props:", { tableName, initialColumnsLength: initialColumns?.length, dataColumnsLength: data?.columns?.length });
+  console.log("DataTable - Full data:", data);
+
+  const displayColumns = data.columns || [];
+
+  const tableRows = useMemo(() => {
+    if (data.rows && data.rows.length > 0 && data.columns && Array.isArray(data.rows[0])) {
+      return data.rows.map(row => {
+        const obj: any = {};
+        data.columns.forEach((col, idx) => {
+          obj[col.name] = row[idx];
+        });
+        return obj;
+      });
+    }
+    return data.rows || [];
+  }, [data.rows, data.columns]);
+
+  const totalPages = Math.ceil(tableRows.length / rowsPerPage);
   const startIndex = (currentPage - 1) * rowsPerPage;
   const endIndex = startIndex + rowsPerPage;
-  const currentRows = data.rows.slice(startIndex, endIndex);
+  const currentRows = tableRows.slice(startIndex, endIndex);
 
   const toggleColumn = (columnName: string) => {
     setSelectedColumns(prev => {
@@ -82,7 +102,7 @@ export const DataTable = ({ data, onGenerateChart, onBackToUpload }: DataTablePr
           <div>
             <h2 className="text-2xl font-bold">Selecione as Colunas</h2>
             <p className="text-muted-foreground">
-              {data.rows.length} linhas • {data.columns.length} colunas detectadas
+              {tableRows.length} linhas • {displayColumns.length} colunas detectadas
             </p>
           </div>
         </div>
@@ -131,7 +151,7 @@ export const DataTable = ({ data, onGenerateChart, onBackToUpload }: DataTablePr
           <CardHeader>
             <CardTitle>Preview dos Dados</CardTitle>
             <CardDescription>
-              Mostrando {currentRows.length} de {data.rows.length} linhas
+              Mostrando {currentRows.length} de {tableRows.length} linhas
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -140,7 +160,7 @@ export const DataTable = ({ data, onGenerateChart, onBackToUpload }: DataTablePr
                 <table className="w-full">
                   <thead>
                     <tr className="border-b">
-                      {data.columns.map((column, index) => (
+                      {displayColumns.map((column) => (
                         <Tooltip key={column.name}>
                           <TooltipTrigger asChild>
                             <th
@@ -189,18 +209,18 @@ export const DataTable = ({ data, onGenerateChart, onBackToUpload }: DataTablePr
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: rowIndex * 0.02 }}
                       >
-                        {row.map((cell, cellIndex) => (
+                        {displayColumns.map((column) => (
                           <td 
-                            key={cellIndex}
+                            key={column.name}
                             className={`
                               p-3 text-sm
-                              ${selectedColumns.includes(data.columns[cellIndex].name)
+                              ${selectedColumns.includes(column.name)
                                 ? 'bg-primary/5 border-x border-primary/20'
                                 : ''
                               }
                             `}
                           >
-                            {cell}
+                            {row[column.name] || '-'}
                           </td>
                         ))}
                       </motion.tr>

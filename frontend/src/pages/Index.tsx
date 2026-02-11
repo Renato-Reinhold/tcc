@@ -7,6 +7,7 @@ import { DataSourceSelection } from "@/components/DataSourceSelection";
 import { DatabaseConnection } from "@/components/DatabaseConnection";
 import { DatabaseDiagram } from "@/components/DatabaseDiagram";
 import { TableDetail } from "@/components/TableDetail";
+import { queryService } from "@/services/queryService";
 import { motion, AnimatePresence } from "framer-motion";
 
 export interface DataColumn {
@@ -19,7 +20,38 @@ export interface ProcessedData {
   columns: DataColumn[];
   rows: any[][];
   selectedColumns: string[];
+  metadata?: {
+    tables: Array<{
+      name: string;
+      columns: Array<{
+        name: string;
+        type: string;
+      }>;
+      row_count?: number;
+    }>;
+    relationships?: Array<{
+      source_table: string;
+      source_column: string;
+      target_table: string;
+      target_column: string;
+    }>;
+  };
 }
+
+// Função auxiliar para processar dados de uma tabela específica
+const getTableData = (data: ProcessedData, tableName: string, selectedColumns: string[]): ProcessedData => {
+  console.log("getTableData - Input:", { tableName, rowCount: data.rows?.length, columnCount: data.columns?.length });
+  
+  if (!data) {
+    return data;
+  }
+
+  // Os dados já vêm do backend, apenas retornar com os selectedColumns atualizados
+  return {
+    ...data,
+    selectedColumns: selectedColumns || data.selectedColumns || []
+  };
+};
 
 type Step = 'source' | 'upload' | 'database' | 'diagram' | 'table' | 'data' | 'chart';
 
@@ -48,6 +80,45 @@ const Index = () => {
     setCurrentStep('table');
   };
 
+  const handleViewTableData = async (tableName: string, columns: string[]) => {
+    console.log("handleViewTableData called with:", { tableName, columnsLength: columns.length });
+    
+    try {
+      // Buscar os dados reais da tabela do backend
+      const response = await queryService.getTableData(tableName);
+      console.log("Table data received:", response);
+      
+      // Converter dados do backend (array de objetos) para array de arrays
+      const rows = response.data ? response.data.map((row: any) => 
+        response.columns.map((col: string) => row[col])
+      ) : [];
+      
+      // Converter colunas para o formato esperado
+      const formattedColumns = response.columns.map((colName: string) => ({
+        name: colName,
+        type: 'text' as const, // Por padrão text, pode ser refinado depois
+        data: []
+      }));
+      
+      console.log("Formatted table data:", { tableName, rowCount: rows.length, columnCount: formattedColumns.length });
+      
+      // Atualizar processedData com os dados reais da tabela
+      const updatedData: ProcessedData = {
+        ...processedData!,
+        columns: formattedColumns,
+        rows: rows,
+        selectedColumns: columns
+      };
+      
+      setProcessedData(updatedData);
+      setSelectedTable(tableName);
+      setSelectedColumns(columns);
+      setCurrentStep('data');
+    } catch (error) {
+      console.error("Erro ao buscar dados da tabela:", error);
+    }
+  };
+
   const handleGenerateChart = (columns: string[]) => {
     setSelectedColumns(columns);
     setCurrentStep('chart');
@@ -58,7 +129,7 @@ const Index = () => {
   };
 
   const handleBackToData = () => {
-    setCurrentStep('table');
+    setCurrentStep('data');
   };
 
   const handleBackToUpload = () => {
@@ -136,7 +207,9 @@ const Index = () => {
               <DatabaseDiagram 
                 data={processedData}
                 onTableSelect={handleTableSelect}
-                onBackToUpload={handleBackToUpload}
+                onViewTableData={handleViewTableData}
+                onGenerateChart={handleGenerateChart}
+                onBackToUpload={handleBackToSource}
               />
             </motion.div>
           )}
@@ -167,9 +240,11 @@ const Index = () => {
               transition={{ duration: 0.3 }}
             >
               <DataTable 
-                data={processedData}
+                data={getTableData(processedData, selectedTable, selectedColumns)}
+                tableName={selectedTable}
+                initialColumns={selectedColumns}
                 onGenerateChart={handleGenerateChart}
-                onBackToUpload={handleBackToUpload}
+                onBackToUpload={handleBackToDiagram}
               />
             </motion.div>
           )}

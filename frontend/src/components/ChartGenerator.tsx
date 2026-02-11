@@ -60,7 +60,6 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
   const [xAxisTitle, setXAxisTitle] = useState('');
   const [yAxisTitle, setYAxisTitle] = useState('');
 
-  // Simulate chart generation
   useState(() => {
     const timer = setTimeout(() => {
       setIsGenerating(false);
@@ -72,7 +71,6 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
     return () => clearTimeout(timer);
   });
 
-  // Process data for charts
   const chartData = useMemo(() => {
     const selectedColumnsData = selectedColumns.map(colName => 
       data.columns.find(col => col.name === colName)
@@ -88,7 +86,6 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
     });
   }, [data, selectedColumns]);
 
-  // Recommend chart type based on data
   const recommendedChartType = useMemo(() => {
     const numericColumns = selectedColumns.filter(colName => {
       const col = data.columns.find(c => c.name === colName);
@@ -111,7 +108,6 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
     return 'bar';
   }, [data.columns, selectedColumns]);
 
-  // Set initial chart type based on recommendation
   useState(() => {
     setChartType(recommendedChartType);
   });

@@ -28,10 +28,8 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
     setIsConnecting(true);
     
     try {
-      // Test Supabase connection
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // Create mock database structure for diagram
       const mockData: ProcessedData = {
         columns: [
           { name: 'users', type: 'text', data: ['id', 'name', 'email', 'created_at'] },
@@ -67,24 +65,93 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
 
   const handleCustomConnection = async () => {
     setIsConnecting(true);
-    
+
+    console.log("Testing custom connection to:", {
+      customHost,
+      customPort,
+      customDatabase,
+      customUser
+    });
+
     try {
-      // Validate connection fields
       if (!customHost || !customDatabase || !customUser) {
         toast({
           title: "Campos obrigatórios",
           description: "Preencha host, database e usuário",
           variant: "destructive"
         });
+        setIsConnecting(false);
         return;
       }
       
-      // Simulate connection attempt
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const apiUrl = `${backendUrl}/viz/test-connection`;
+      
+      console.log("Making request to:", apiUrl);
+      
+      let connectionHost = customHost;
+      if (customHost === 'localhost' || customHost === '127.0.0.1') {
+        connectionHost = 'backend-db';
+        console.log("Converting localhost to backend-db for Docker connection");
+      }
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          host: connectionHost,
+          port: parseInt(customPort),
+          database: customDatabase,
+          username: customUser,
+          password: customPassword
+        })
+      });
+      
+      console.log("Response status:", response.status);
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error("API Error:", error);
+        toast({
+          title: "Erro na conexão",
+          description: error.detail || "Falha ao conectar com o banco de dados",
+          variant: "destructive"
+        });
+        return;
+      }
+      
+      const data = await response.json();
+      console.log("Connection successful! Full response:", data);
+      
+      const mockData: ProcessedData = {
+        columns: data.metadata.tables.map((table: any) => ({
+          name: table.name,
+          type: 'text',
+          data: table.columns.map((col: any) => col.name)
+        })),
+        rows: data.metadata.tables.map((table: any) => [
+          table.name,
+          `${table.columns.length} colunas`,
+          `Tabela do banco ${customDatabase}`
+        ]),
+        selectedColumns: [],
+        metadata: data.metadata
+      };
+      
+      console.log("ProcessedData being sent to onDataUploaded:", mockData);
       
       toast({
-        title: "Funcionalidade em desenvolvimento",
-        description: "Conexões personalizadas estarão disponíveis em breve",
+        title: "Conexão estabelecida!",
+        description: data.message
+      });
+      
+      onDataUploaded(mockData);
+    } catch (error: any) {
+      toast({
+        title: "Erro na conexão",
+        description: error.message || "Erro ao conectar com o banco de dados",
         variant: "destructive"
       });
     } finally {
@@ -208,8 +275,11 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                         id="host"
                         value={customHost}
                         onChange={(e) => setCustomHost(e.target.value)}
-                        placeholder="localhost"
+                        placeholder="backend-db ou localhost"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Use "backend-db" para o PostgreSQL em Docker
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="port">Porta</Label>

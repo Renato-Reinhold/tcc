@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ArrowLeft, Table, Database, CheckCircle2, Circle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ArrowLeft, Table, Database, CheckCircle2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,12 +19,78 @@ interface TableDetailProps {
 export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart }: TableDetailProps) => {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [tableRows, setTableRows] = useState<any[]>([]);
+  const [isLoadingTable, setIsLoadingTable] = useState(false);
   const itemsPerPage = 10;
   
-  const totalPages = Math.ceil(data.rows.length / itemsPerPage);
+  // Se for dados do banco, buscar dados da tabela
+  useEffect(() => {
+    const fetchTableData = async () => {
+      // Se temos metadata e a tabela é do banco, buscar dados
+      if (data.metadata && data.metadata.tables && data.metadata.tables.length > 0) {
+        setIsLoadingTable(true);
+        try {
+          const response = await fetch(
+            `http://localhost:8000/viz/tables/${tableName}/data?limit=100&offset=0`
+          );
+          const result = await response.json();
+          
+          if (response.ok) {
+            setTableRows(result.data || []);
+          } else {
+            console.error("Failed to fetch table data:", response.status, result.detail || result);
+            setTableRows([]);
+          }
+        } catch (error) {
+          console.error("Error fetching table data:", error);
+          setTableRows([]);
+        } finally {
+          setIsLoadingTable(false);
+        }
+      } else {
+        // Usar dados do CSV - converter de array de arrays para array de objetos
+        if (data.rows && data.rows.length > 0 && data.columns) {
+          const rows = data.rows.map(row => {
+            const obj: any = {};
+            data.columns.forEach((col, idx) => {
+              obj[col.name] = row[idx];
+            });
+            return obj;
+          });
+          setTableRows(rows);
+        } else {
+          setTableRows(data.rows || []);
+        }
+      }
+    };
+    
+    fetchTableData();
+  }, [data, tableName]);
+  
+  const totalPages = Math.ceil(tableRows.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentRows = data.rows.slice(startIndex, endIndex);
+  const currentRows = tableRows.slice(startIndex, endIndex);
+  
+  // Obter colunas - se for banco, extrai dos dados; se for CSV, filtra por tableName
+  let displayColumns = data.metadata && data.metadata.tables ? 
+    (tableRows.length > 0 ? Object.keys(tableRows[0]).map(name => ({ 
+      name, 
+      type: 'text',
+      data: [...new Set(tableRows.map(row => row[name]))] // Valores únicos
+    })) : []) :
+    (data.columns || []);
+
+  // Filtrar colunas por tableName quando é CSV
+  if (!data.metadata || !data.metadata.tables) {
+    if (tableName === 'Tabela Relacionada A' && data.columns && data.columns.length > 4) {
+      const midPoint = Math.floor(data.columns.length / 2);
+      displayColumns = displayColumns.slice(0, midPoint);
+    } else if (tableName === 'Tabela Relacionada B' && data.columns && data.columns.length > 4) {
+      const midPoint = Math.floor(data.columns.length / 2);
+      displayColumns = displayColumns.slice(midPoint);
+    }
+  }
 
   const toggleColumn = (columnName: string) => {
     setSelectedColumns(prev => 
@@ -79,33 +145,19 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
               {tableName}
             </h2>
             <p className="text-muted-foreground">
-              {data.columns.length} colunas • {data.rows.length} registros • {selectedColumns.length} selecionadas
+              {displayColumns.length} colunas • {tableRows.length} registros • {selectedColumns.length} selecionadas
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {canGenerateChart ? (
+          {selectedColumns.length >= 2 && (
             <Button 
               className="bg-gradient-primary hover:shadow-glow"
-              onClick={handleGenerateChart}
+              onClick={() => onGenerateChart(selectedColumns)}
             >
-              <CheckCircle2 className="h-4 w-4 mr-2" />
+              <Zap className="h-4 w-4 mr-2" />
               Gerar Gráfico ({selectedColumns.length})
             </Button>
-          ) : (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" disabled>
-                    <Circle className="h-4 w-4 mr-2" />
-                    Selecione 2+ Colunas
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Selecione pelo menos 2 colunas para gerar um gráfico</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           )}
         </div>
       </motion.div>
@@ -125,7 +177,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {data.columns.map((column) => (
+              {displayColumns.map((column) => (
                 <div
                   key={column.name}
                   className={`p-4 border rounded-lg cursor-pointer transition-all ${
@@ -159,8 +211,6 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
           </CardContent>
         </Card>
       </motion.div>
-
-      {/* Data Table */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -181,12 +231,21 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
             </div>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="w-full">
-              <div className="min-w-full">
-                <table className="w-full border-collapse">
+            {isLoadingTable ? (
+              <div className="flex items-center justify-center py-8">
+                <p className="text-muted-foreground">Carregando dados da tabela...</p>
+              </div>
+            ) : tableRows.length === 0 ? (
+              <div className="flex items-center justify-center py-8">
+                <p className="text-muted-foreground">Nenhum dado disponível</p>
+              </div>
+            ) : (
+              <ScrollArea className="w-full">
+                <div className="min-w-full">
+                  <table className="w-full border-collapse">
                   <thead>
                     <tr className="border-b">
-                      {data.columns.map((column) => (
+                      {displayColumns.map((column) => (
                         <th
                           key={column.name}
                           className={`text-left p-3 font-medium cursor-pointer transition-colors ${
@@ -221,7 +280,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                   <tbody>
                     {currentRows.map((row, rowIndex) => (
                       <tr key={rowIndex} className="border-b hover:bg-muted/30">
-                        {data.columns.map((column, colIndex) => (
+                        {displayColumns.map((column) => (
                           <td
                             key={column.name}
                             className={`p-3 ${
@@ -231,7 +290,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                             }`}
                           >
                             <span className="text-sm">
-                              {row[colIndex] || '-'}
+                              {row[column.name] || '-'}
                             </span>
                           </td>
                         ))}
@@ -241,6 +300,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                 </table>
               </div>
             </ScrollArea>
+            )}
 
             {/* Pagination */}
             {totalPages > 1 && (
@@ -254,7 +314,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                   Anterior
                 </Button>
                 <span className="text-sm text-muted-foreground px-4">
-                  {startIndex + 1}-{Math.min(endIndex, data.rows.length)} de {data.rows.length}
+                  {startIndex + 1}-{Math.min(endIndex, tableRows.length)} de {tableRows.length}
                 </span>
                 <Button
                   variant="outline"
@@ -291,8 +351,8 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                 </div>
                 <Button 
                   className="bg-gradient-primary hover:shadow-glow"
-                  onClick={handleGenerateChart}
-                  disabled={!canGenerateChart}
+                  onClick={() => onGenerateChart(selectedColumns)}
+                  disabled={selectedColumns.length < 2}
                 >
                   <CheckCircle2 className="h-4 w-4 mr-2" />
                   Gerar Gráfico

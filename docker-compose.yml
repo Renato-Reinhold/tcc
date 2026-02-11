@@ -1,15 +1,116 @@
 version: "3.9"
+
 services:
+  # ========== DATABASE (PostgreSQL) ==========
+  backend-db:
+    container_name: tcc-database
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=tcc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - backend-data:/var/lib/postgresql/data
+    networks:
+      - tcc-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ========== BACKEND ==========
   backend:
-    build: ./backend
+    container_name: tcc-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    environment:
+      - DB_HOST=backend-db
+      - DB_PORT=5432
+      - DB_NAME=tcc_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./backend:/app
-    restart: always
+      - backend-cache:/app/.pytest_cache
+    working_dir: /app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - tcc-network
+    depends_on:
+      backend-db:
+        condition: service_healthy
 
+  # ========== FRONTEND ==========
   frontend:
-    build: ./frontend
+    container_name: tcc-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+      args:
+        - VITE_BACKEND_URL=http://localhost:8000
     ports:
-      - "3000:80"   # 3000 externo → 80 interno (Nginx)
-    restart: always
+      - "5173:5173"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    working_dir: /app
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - tcc-network
+    depends_on:
+      - backend
+
+  # ========== NGINX PROXY (Optional) ==========
+  nginx:
+    container_name: tcc-nginx
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - tcc-network
+    profiles:
+      - with-nginx
+
+# ========== VOLUMES ==========
+volumes:
+  backend-data:
+    driver: local
+  backend-cache:
+    driver: local
+
+# ========== NETWORKS ==========
+networks:
+  tcc-network:
+    driver: bridge

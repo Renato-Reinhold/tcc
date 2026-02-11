@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+data/model/
+.ipynb_checkpoints/
+CHECKLIST_FINAL.md
+FLUXO_IMPLEMENTADO.md
+FLUXO_VISAO_GERAL.md
+GUIA_TESTE.md

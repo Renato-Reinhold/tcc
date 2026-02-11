@@ -1,0 +1,43 @@
+import pandas as pd
+from .aggregation_inferer import AggregationInferer
+from .base_table_selector import choose_best_base_table
+from .sql_generator import SQLGenerator
+from .pandas_executor import PandasExecutor
+
+class DataQueryService:
+
+    def execute(
+        self,
+        query,
+        column_metadata,
+        index_metadata,
+        relationship_graph,
+        data_source
+    ):
+        # 1. inferir agregações
+        group_by, aggregations = AggregationInferer().infer(
+            column_metadata[query.x_column],
+            column_metadata[query.y_column]
+        )
+
+        query.group_by = group_by
+        query.aggregations = aggregations
+
+        # 2. escolher tabela base
+        base_table = choose_best_base_table(
+            query.tables,
+            query.filters,
+            index_metadata
+        )
+
+        # 3. executar
+        if query.source_type == "database":
+            sql = SQLGenerator().generate(
+                query,
+                relationship_graph,
+                base_table
+            )
+            return data_source.execute_sql(sql)
+
+        if query.source_type == "file":
+            return PandasExecutor().execute(data_source, query)
