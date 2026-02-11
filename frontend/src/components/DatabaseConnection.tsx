@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Database, CheckCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import type { ProcessedData } from "@/pages/Index";
 
 interface DatabaseConnectionProps {
@@ -15,7 +14,7 @@ interface DatabaseConnectionProps {
 }
 
 export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseConnectionProps) => {
-  const [connectionType, setConnectionType] = useState<'supabase' | 'sql'>('supabase');
+  const [connectionType, setConnectionType] = useState<'sql'>('sql');
   const [isConnecting, setIsConnecting] = useState(false);
   
   const [customHost, setCustomHost] = useState('');
@@ -24,44 +23,6 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
   const [customUser, setCustomUser] = useState('');
   const [customPassword, setCustomPassword] = useState('');
 
-  const handleSupabaseConnection = async () => {
-    setIsConnecting(true);
-    
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const mockData: ProcessedData = {
-        columns: [
-          { name: 'users', type: 'text', data: ['id', 'name', 'email', 'created_at'] },
-          { name: 'orders', type: 'text', data: ['id', 'user_id', 'total', 'status', 'created_at'] },
-          { name: 'products', type: 'text', data: ['id', 'name', 'price', 'category', 'stock'] },
-          { name: 'order_items', type: 'text', data: ['id', 'order_id', 'product_id', 'quantity', 'price'] }
-        ],
-        rows: [
-          ['users', 'Tabela de usuários', '1,234 registros'],
-          ['orders', 'Tabela de pedidos', '5,678 registros'],
-          ['products', 'Tabela de produtos', '456 registros'],
-          ['order_items', 'Itens dos pedidos', '12,345 registros']
-        ],
-        selectedColumns: []
-      };
-      
-      toast({
-        title: "Conexão estabelecida!",
-        description: "Conectado ao banco Supabase com sucesso"
-      });
-      
-      onDataUploaded(mockData);
-    } catch (error: any) {
-      toast({
-        title: "Erro na conexão",
-        description: error.message || "Erro ao conectar com o Supabase",
-        variant: "destructive"
-      });
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const handleCustomConnection = async () => {
     setIsConnecting(true);
@@ -212,31 +173,10 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Connection Type Selection */}
+              {/* Connection Type Selection - SQL Only */}
               <div className="space-y-4">
                 <Label className="text-base font-medium">Tipo de Conexão</Label>
                 <div className="space-y-3">
-                  <div 
-                    className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                      connectionType === 'supabase' 
-                        ? 'border-primary bg-primary/5' 
-                        : 'border-border hover:border-primary/30'
-                    }`}
-                    onClick={() => setConnectionType('supabase')}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-semibold">Supabase (Recomendado)</h3>
-                        <p className="text-sm text-muted-foreground">
-                          Conexão direta com Supabase PostgreSQL
-                        </p>
-                      </div>
-                      {connectionType === 'supabase' && (
-                        <CheckCircle className="h-5 w-5 text-primary" />
-                      )}
-                    </div>
-                  </div>
-
                   <div 
                     className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                       connectionType === 'sql' 
@@ -349,15 +289,6 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                   </>
                 )}
               </Button>
-
-              {connectionType === 'supabase' && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                  <p className="text-sm text-muted-foreground">
-                    Conexão configurada automaticamente com seu projeto Supabase
-                  </p>
-                </div>
-              )}
             </CardContent>
           </Card>
         </motion.div>
