@@ -4,10 +4,10 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copiar package files
-COPY package.json package-lock.json* bun.lockb* ./
+COPY package.json package-lock.json* ./
 
 # Instalar dependências
-RUN npm install --frozen-lockfile 2>/dev/null || npm install
+RUN npm install
 
 # Copiar código-fonte
 COPY . .

@@ -185,7 +185,7 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
               type: col.type === 'INTEGER' || col.type === 'NUMERIC' ? 'number' : 
                     col.type === 'DATE' || col.type === 'TIMESTAMP' ? 'date' : 'text'
             })),
-            recordCount: table.row_count || 0,
+            recordCount: table.record_count || table.row_count || 0,
             selectedColumns: tableSelections[table.name] || new Set(),
             onViewData: (tableName: string, columns: string[]) => {
               console.log("Table selected:", tableName.toUpperCase, "Columns:", columns);
@@ -198,60 +198,44 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
       return nodes;
     }
 
-    const tables = [
-      {
+    const tables: any[] = [];
+    
+    // Se os dados têm múltiplas tabelas (de um banco de dados)
+    if (data.metadata && data.metadata.tables && data.metadata.tables.length > 0) {
+      data.metadata.tables.forEach((table: any, index: number) => {
+        tables.push({
+          id: `table-${index}`,
+          type: 'table',
+          position: { x: 100 + index * 350, y: 100 },
+          data: {
+            label: table.name,
+            columns: table.columns.map((col: any) => ({
+              name: col.name,
+              type: col.type || 'text'
+            })),
+            recordCount: table.record_count || 0,
+            selectedColumns: tableSelections[table.name] || new Set(),
+            onViewData: (tableName: string, columns: string[]) => {
+              onViewTableData(tableName, columns);
+            },
+            onToggleColumn: handleToggleColumnInDiagram
+          }
+        });
+      });
+    } else {
+      // Se são dados de arquivo (upload)
+      tables.push({
         id: 'main-table',
         type: 'table',
         position: { x: 100, y: 100 },
         data: {
-          label: 'Dados Principais',
+          label: data.tableName || 'Dados Principais',
           columns: data.columns.map(col => ({
             name: col.name,
             type: col.type
           })),
           recordCount: data.rows.length,
-          selectedColumns: tableSelections['Dados Principais'] || new Set(),
-          onViewData: (tableName: string, columns: string[]) => {
-            onViewTableData(tableName, columns);
-          },
-          onToggleColumn: handleToggleColumnInDiagram
-        }
-      }
-    ];
-
-    if (data.columns.length > 4) {
-      const midPoint = Math.floor(data.columns.length / 2);
-      tables.push({
-        id: 'related-table-1',
-        type: 'table',
-        position: { x: 400, y: 50 },
-        data: {
-          label: 'Tabela Relacionada A',
-          columns: data.columns.slice(0, midPoint).map(col => ({
-            name: col.name,
-            type: col.type
-          })),
-          recordCount: Math.floor(data.rows.length * 0.8),
-          selectedColumns: tableSelections['Tabela Relacionada A'] || new Set(),
-          onViewData: (tableName: string, columns: string[]) => {
-            onViewTableData(tableName, columns);
-          },
-          onToggleColumn: handleToggleColumnInDiagram
-        }
-      });
-
-      tables.push({
-        id: 'related-table-2',
-        type: 'table',
-        position: { x: 400, y: 250 },
-        data: {
-          label: 'Tabela Relacionada B',
-          columns: data.columns.slice(midPoint).map(col => ({
-            name: col.name,
-            type: col.type
-          })),
-          recordCount: Math.floor(data.rows.length * 0.6),
-          selectedColumns: tableSelections['Tabela Relacionada B'] || new Set(),
+          selectedColumns: tableSelections[data.tableName || 'Dados Principais'] || new Set(),
           onViewData: (tableName: string, columns: string[]) => {
             onViewTableData(tableName, columns);
           },

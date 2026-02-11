@@ -20,6 +20,7 @@ export interface ProcessedData {
   columns: DataColumn[];
   rows: any[][];
   selectedColumns: string[];
+  tableName?: string;
   metadata?: {
     tables: Array<{
       name: string;
@@ -28,6 +29,7 @@ export interface ProcessedData {
         type: string;
       }>;
       row_count?: number;
+      record_count?: number;
     }>;
     relationships?: Array<{
       source_table: string;
@@ -84,31 +86,50 @@ const Index = () => {
     console.log("handleViewTableData called with:", { tableName, columnsLength: columns.length });
     
     try {
-      // Buscar os dados reais da tabela do backend
-      const response = await queryService.getTableData(tableName);
-      console.log("Table data received:", response);
+      let updatedData: ProcessedData;
+
+      // Se os dados já estão em processedData (arquivo upload), usar os dados locais
+      if (processedData && processedData.rows && processedData.rows.length > 0) {
+        console.log("Using local data from processedData");
+        
+        // Filtrar colunas se necessário
+        let filteredColumns = processedData.columns;
+        if (columns.length > 0) {
+          filteredColumns = processedData.columns.filter(col => columns.includes(col.name));
+        }
+
+        updatedData = {
+          ...processedData,
+          columns: filteredColumns,
+          selectedColumns: columns
+        };
+      } else {
+        // Se não há dados locais, buscar do backend (banco de dados)
+        console.log("Fetching data from backend");
+        const response = await queryService.getTableData(tableName);
+        console.log("Table data received:", response);
+        
+        // Converter dados do backend (array de objetos) para array de arrays
+        const rows = response.data ? response.data.map((row: any) => 
+          response.columns.map((col: string) => row[col])
+        ) : [];
+        
+        // Converter colunas para o formato esperado
+        const formattedColumns = response.columns.map((colName: string) => ({
+          name: colName,
+          type: 'text' as const, // Por padrão text, pode ser refinado depois
+          data: []
+        }));
+
+        updatedData = {
+          ...processedData!,
+          columns: formattedColumns,
+          rows: rows,
+          selectedColumns: columns
+        };
+      }
       
-      // Converter dados do backend (array de objetos) para array de arrays
-      const rows = response.data ? response.data.map((row: any) => 
-        response.columns.map((col: string) => row[col])
-      ) : [];
-      
-      // Converter colunas para o formato esperado
-      const formattedColumns = response.columns.map((colName: string) => ({
-        name: colName,
-        type: 'text' as const, // Por padrão text, pode ser refinado depois
-        data: []
-      }));
-      
-      console.log("Formatted table data:", { tableName, rowCount: rows.length, columnCount: formattedColumns.length });
-      
-      // Atualizar processedData com os dados reais da tabela
-      const updatedData: ProcessedData = {
-        ...processedData!,
-        columns: formattedColumns,
-        rows: rows,
-        selectedColumns: columns
-      };
+      console.log("Formatted table data:", { tableName, rowCount: updatedData.rows.length, columnCount: updatedData.columns.length });
       
       setProcessedData(updatedData);
       setSelectedTable(tableName);

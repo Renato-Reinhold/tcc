@@ -81,17 +81,6 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
     })) : []) :
     (data.columns || []);
 
-  // Filtrar colunas por tableName quando é CSV
-  if (!data.metadata || !data.metadata.tables) {
-    if (tableName === 'Tabela Relacionada A' && data.columns && data.columns.length > 4) {
-      const midPoint = Math.floor(data.columns.length / 2);
-      displayColumns = displayColumns.slice(0, midPoint);
-    } else if (tableName === 'Tabela Relacionada B' && data.columns && data.columns.length > 4) {
-      const midPoint = Math.floor(data.columns.length / 2);
-      displayColumns = displayColumns.slice(midPoint);
-    }
-  }
-
   const toggleColumn = (columnName: string) => {
     setSelectedColumns(prev => 
       prev.includes(columnName) 

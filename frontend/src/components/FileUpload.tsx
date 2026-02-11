@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import type { ProcessedData } from "@/pages/Index";
 import heroImage from "@/assets/hero-charts.jpg";
+import * as XLSX from 'xlsx';
 
 interface FileUploadProps {
   onDataUploaded: (data: ProcessedData) => void;
@@ -15,6 +16,178 @@ interface FileUploadProps {
 export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) => {
   const [dragActive, setDragActive] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const processCSV = async (file: File): Promise<ProcessedData> => {
+    const text = await file.text();
+    const allLines = text.split('\n');
+    
+    if (allLines.length < 2) {
+      throw new Error('Arquivo CSV vazio ou inválido');
+    }
+
+    const lines = allLines.filter(line => line.trim().length > 0);
+    
+    if (lines.length < 2) {
+      throw new Error('Arquivo CSV vazio ou inválido');
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim());
+    const rows = lines.slice(1).map(line => line.split(',').map(cell => cell.trim()));
+
+    const columns = headers.map(header => ({
+      name: header,
+      type: 'text' as const,
+      data: []
+    }));
+
+    return {
+      columns,
+      rows,
+      selectedColumns: [],
+      tableName: 'Dados CSV',
+      metadata: {
+        tables: [{
+          name: 'Dados CSV',
+          columns: columns,
+          record_count: rows.length
+        }],
+        relationships: []
+      }
+    };
+  };
+
+  const processJSON = async (file: File): Promise<ProcessedData> => {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new Error('JSON deve ser um array de objetos');
+    }
+
+    const firstRow = data[0];
+    const headers = Object.keys(firstRow);
+
+    const columns = headers.map(header => ({
+      name: header,
+      type: 'text' as const,
+      data: []
+    }));
+
+    const rows = data.map(obj => headers.map(header => obj[header]));
+
+    return {
+      columns,
+      rows,
+      selectedColumns: [],
+      metadata: {
+        tables: [{
+          name: 'Dados JSON',
+          columns: columns,
+          record_count: rows.length
+        }],
+        relationships: []
+      }
+    };
+  };
+
+  const processExcel = async (file: File): Promise<ProcessedData> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    
+    if (workbook.SheetNames.length === 0) {
+      throw new Error('Nenhuma planilha encontrada');
+    }
+
+    // Se há apenas uma planilha, processar normalmente
+    if (workbook.SheetNames.length === 1) {
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(worksheet);
+
+      if (data.length === 0) {
+        throw new Error('Planilha vazia');
+      }
+
+      const firstRow = data[0];
+      const headers = Object.keys(firstRow);
+
+      const columns = headers.map(header => ({
+        name: header,
+        type: 'text' as const,
+        data: []
+      }));
+
+      const rows = data.map(obj => headers.map(header => {
+        const value = obj[header];
+        return value !== null && value !== undefined ? String(value) : '';
+      }));
+
+      return {
+        columns,
+        rows,
+        selectedColumns: [],
+        metadata: {
+          tables: [{
+            name: workbook.SheetNames[0],
+            columns: columns,
+            record_count: rows.length
+          }],
+          relationships: []
+        }
+      };
+    }
+
+    // Se há múltiplas planilhas, criar uma estrutura com todas elas
+    const tables: any[] = [];
+    const allColumns: any[] = [];
+    let totalRows: string[][] = [];
+
+    workbook.SheetNames.forEach(sheetName => {
+      const worksheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(worksheet);
+
+      if (data.length > 0) {
+        const firstRow = data[0];
+        const headers = Object.keys(firstRow);
+
+        const columns = headers.map(header => ({
+          name: header,
+          type: 'text' as const,
+          data: []
+        }));
+
+        const rows = data.map(obj => headers.map(header => {
+          const value = obj[header];
+          return value !== null && value !== undefined ? String(value) : '';
+        }));
+
+        tables.push({
+          name: sheetName,
+          columns: columns,
+          record_count: rows.length
+        });
+
+        allColumns.push(...columns);
+        totalRows.push(...rows);
+      }
+    });
+
+    if (tables.length === 0) {
+      throw new Error('Nenhuma planilha com dados encontrada');
+    }
+
+    // Remover duplicatas de colunas
+    const uniqueColumns = Array.from(new Map(allColumns.map(col => [col.name, col])).values());
+
+    return {
+      columns: uniqueColumns,
+      rows: totalRows,
+      selectedColumns: [],
+      metadata: {
+        tables: tables,
+        relationships: []
+      }
+    };
+  };
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -46,36 +219,43 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
     setIsProcessing(true);
 
     try {
-      // Simulate file processing with mock data
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      let processedData: ProcessedData;
+
+      if (fileExtension === '.csv') {
+        processedData = await processCSV(file);
+      } else if (fileExtension === '.xlsx') {
+        processedData = await processExcel(file);
+      } else if (fileExtension === '.json') {
+        processedData = await processJSON(file);
+      } else {
+        throw new Error('Tipo de arquivo não suportado');
+      }
       
-      // Mock processed data for demo
-      const mockData: ProcessedData = {
-        columns: [
-          { name: 'Data', type: 'date', data: ['2024-01', '2024-02', '2024-03', '2024-04'] },
-          { name: 'Vendas', type: 'number', data: [1200, 1800, 1500, 2100] },
-          { name: 'Produto', type: 'text', data: ['A', 'B', 'A', 'B'] },
-          { name: 'Região', type: 'text', data: ['Norte', 'Sul', 'Norte', 'Sul'] }
-        ],
-        rows: [
-          ['2024-01', 1200, 'A', 'Norte'],
-          ['2024-02', 1800, 'B', 'Sul'],
-          ['2024-03', 1500, 'A', 'Norte'],
-          ['2024-04', 2100, 'B', 'Sul']
-        ],
-        selectedColumns: []
-      };
+      // Montar mensagem de sucesso com informações sobre as tabelas
+      let successMessage = '';
+      if (processedData.metadata?.tables && processedData.metadata.tables.length > 0) {
+        if (processedData.metadata.tables.length === 1) {
+          const table = processedData.metadata.tables[0];
+          successMessage = `${table.record_count} registros em 1 tabela com ${table.columns.length} colunas`;
+        } else {
+          const totalRecords = processedData.metadata.tables.reduce((sum, t) => sum + (t.record_count || 0), 0);
+          const tableInfo = processedData.metadata.tables.map(t => `${t.name} (${t.record_count} registros)`).join(', ');
+          successMessage = `${processedData.metadata.tables.length} tabelas encontradas: ${tableInfo}`;
+        }
+      } else {
+        successMessage = `${processedData.rows.length} linhas e ${processedData.columns.length} colunas detectadas`;
+      }
       
       toast({
         title: "Arquivo processado com sucesso!",
-        description: `${mockData.rows.length} linhas e ${mockData.columns.length} colunas detectadas`
+        description: successMessage
       });
       
-      onDataUploaded(mockData);
-    } catch (error) {
+      onDataUploaded(processedData);
+    } catch (error: any) {
       toast({
         title: "Erro ao processar arquivo",
-        description: "Verifique se o arquivo está no formato correto",
+        description: error.message || "Verifique se o arquivo está no formato correto",
         variant: "destructive"
       });
     } finally {
