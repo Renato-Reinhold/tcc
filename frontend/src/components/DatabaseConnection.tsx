@@ -32,7 +32,6 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
   const [customUser, setCustomUser] = useState('postgres');
   const [customPassword, setCustomPassword] = useState('');
 
-  // Carregar bancos suportados ao montar
   useEffect(() => {
     const loadSupportedDatabases = async () => {
       try {
@@ -40,14 +39,12 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
         if (response.ok) {
           const data = await response.json();
           setSupportedDatabases(data.supported);
-          // Atualizar porta padrão quando trocar tipo
           const selectedDb = data.supported.find((db: SupportedDatabase) => db.type === selectedDbType);
           if (selectedDb?.default_port) {
             setCustomPort(selectedDb.default_port);
           }
         }
       } catch (error) {
-        console.error("Erro ao carregar bancos suportados:", error);
       }
     };
     
@@ -56,12 +53,10 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
 
   const handleDatabaseTypeChange = (newType: string) => {
     setSelectedDbType(newType);
-    // Atualizar porta padrão
     const selectedDb = supportedDatabases.find(db => db.type === newType);
     if (selectedDb?.default_port) {
       setCustomPort(selectedDb.default_port);
     }
-    // Limpar credenciais padrão se mudar para SQLite
     if (newType === 'sqlite') {
       setCustomUser('');
       setCustomPassword('');
@@ -76,16 +71,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
   const handleCustomConnection = async () => {
     setIsConnecting(true);
 
-    console.log("Testing custom connection to:", {
-      db_type: selectedDbType,
-      customHost,
-      customPort,
-      customDatabase,
-      customUser
-    });
-
     try {
-      // Validar campos obrigatórios
       if (!customDatabase) {
         toast({
           title: "Campo obrigatório",
@@ -96,7 +82,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
         return;
       }
 
-      if (selectedDbType !== 'sqlite' && (!customHost || !customUser)) {
+      if (!customDatabase || (selectedDbType !== 'sqlite' && (!customHost || !customUser))) {
         toast({
           title: "Campos obrigatórios",
           description: "Host e usuário são obrigatórios",
@@ -108,14 +94,10 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
       
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
       
-      // Converter localhost para backend-db se necessário (Docker)
       let connectionHost = customHost;
       if (selectedDbType !== 'sqlite' && (customHost === 'localhost' || customHost === '127.0.0.1')) {
         connectionHost = 'backend-db';
-        console.log("Converting localhost to backend-db for Docker connection");
       }
-      
-      // Testar conexão via novo endpoint
       const connectionPayload = {
         db_type: selectedDbType,
         host: selectedDbType !== 'sqlite' ? connectionHost : undefined,
@@ -124,8 +106,6 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
         user: selectedDbType !== 'sqlite' ? customUser : undefined,
         password: selectedDbType !== 'sqlite' ? customPassword : undefined
       };
-
-      console.log("Connection payload:", connectionPayload);
 
       const connectionResponse = await fetch(`${backendUrl}/viz/databases/connect`, {
         method: 'POST',
@@ -139,9 +119,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
       }
 
       const connectionData = await connectionResponse.json();
-      console.log("Connection successful:", connectionData);
 
-      // Obter tabelas do banco conectado
       const tablesResponse = await fetch(`${backendUrl}/viz/databases/tables`);
 
       if (!tablesResponse.ok) {
@@ -149,7 +127,6 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
       }
 
       const tablesData = await tablesResponse.json();
-      console.log("Tables data received:", tablesData);
 
       const mockData: ProcessedData = {
         columns: tablesData.tables.map((table: any) => ({
@@ -163,13 +140,12 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
           `Tabela do banco ${customDatabase}`
         ]),
         selectedColumns: [],
+        source: 'database',
         metadata: {
           tables: tablesData.tables,
           relationships: []
         }
       };
-
-      console.log("ProcessedData being sent to onDataUploaded:", mockData);
 
       toast({
         title: "Conexão estabelecida!",
@@ -191,8 +167,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Back Button */}
-      <motion.div 
+<motion.div 
         className="mb-6"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
@@ -207,9 +182,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
           Voltar para seleção de fonte
         </Button>
       </motion.div>
-
-      {/* Header */}
-      <motion.div 
+<motion.div 
         className="text-center mb-8"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -227,8 +200,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
       </motion.div>
 
       <div className="max-w-3xl mx-auto">
-        {/* Connection Configuration */}
-        <motion.div
+<motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
@@ -241,8 +213,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Database Type Selection */}
-              <div className="space-y-4">
+<div className="space-y-4">
                 <Label htmlFor="db-type" className="text-base font-medium">Tipo de Banco de Dados *</Label>
                 <Select value={selectedDbType} onValueChange={handleDatabaseTypeChange}>
                   <SelectTrigger id="db-type">
@@ -260,9 +231,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Connection Fields */}
-              {selectedDbType !== 'sqlite' && (
+{selectedDbType !== 'sqlite' && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="host">Host *</Label>
@@ -321,9 +290,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                   </div>
                 </div>
               )}
-
-              {/* Connection Button */}
-              <Button 
+<Button 
                 className="w-full" 
                 size="lg"
                 onClick={handleCustomConnection}

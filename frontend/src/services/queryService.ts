@@ -84,14 +84,29 @@ export const queryService = {
    * Busca os dados reais de uma tabela específica
    */
   async getTableData(tableName: string): Promise<{ data: any[]; columns: string[]; total_count: number; limit: number; offset: number }> {
-    const response = await fetch(`${API_BASE_URL}/viz/tables/${tableName}/data`, {
-      method: 'GET',
-    });
+    try {
+      // Tentar primeiro o endpoint de conexão dinâmica
+      const response = await fetch(`${API_BASE_URL}/viz/databases/table/${tableName}/data`, {
+        method: 'GET',
+      });
 
-    if (!response.ok) {
-      throw new Error(`Erro ao obter dados da tabela: ${response.statusText}`);
+      if (response.ok) {
+        return response.json();
+      }
+
+      // Se falhar, tentar o endpoint do banco padrão
+      const fallbackResponse = await fetch(`${API_BASE_URL}/viz/tables/${tableName}/data`, {
+        method: 'GET',
+      });
+
+      if (!fallbackResponse.ok) {
+        throw new Error(`Erro ao obter dados da tabela: ${fallbackResponse.statusText}`);
+      }
+
+      return fallbackResponse.json();
+    } catch (error) {
+      console.error("Erro ao buscar dados da tabela:", error);
+      throw new Error(`Erro ao obter dados da tabela: ${error}`);
     }
-
-    return response.json();
   },
 };

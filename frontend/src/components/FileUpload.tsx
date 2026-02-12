@@ -45,6 +45,7 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       rows,
       selectedColumns: [],
       tableName: 'Dados CSV',
+      source: 'file',
       metadata: {
         tables: [{
           name: 'Dados CSV',
@@ -79,6 +80,7 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       columns,
       rows,
       selectedColumns: [],
+      source: 'file',
       metadata: {
         tables: [{
           name: 'Dados JSON',
@@ -98,7 +100,6 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       throw new Error('Nenhuma planilha encontrada');
     }
 
-    // Se há apenas uma planilha, processar normalmente
     if (workbook.SheetNames.length === 1) {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(worksheet);
@@ -125,6 +126,7 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
         columns,
         rows,
         selectedColumns: [],
+        source: 'file',
         metadata: {
           tables: [{
             name: workbook.SheetNames[0],
@@ -136,7 +138,6 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       };
     }
 
-    // Se há múltiplas planilhas, criar uma estrutura com todas elas
     const tables: any[] = [];
     const allColumns: any[] = [];
     let totalRows: string[][] = [];
@@ -175,13 +176,13 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       throw new Error('Nenhuma planilha com dados encontrada');
     }
 
-    // Remover duplicatas de colunas
     const uniqueColumns = Array.from(new Map(allColumns.map(col => [col.name, col])).values());
 
     return {
       columns: uniqueColumns,
       rows: totalRows,
       selectedColumns: [],
+      source: 'file',
       metadata: {
         tables: tables,
         relationships: []
@@ -193,7 +194,7 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
     if (!files || files.length === 0) return;
     
     const file = files[0];
-    const maxSize = 50 * 1024 * 1024; // 50MB
+    const maxSize = 50 * 1024 * 1024;
 
     if (file.size > maxSize) {
       toast({
@@ -231,14 +232,12 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
         throw new Error('Tipo de arquivo não suportado');
       }
       
-      // Montar mensagem de sucesso com informações sobre as tabelas
       let successMessage = '';
       if (processedData.metadata?.tables && processedData.metadata.tables.length > 0) {
         if (processedData.metadata.tables.length === 1) {
           const table = processedData.metadata.tables[0];
           successMessage = `${table.record_count} registros em 1 tabela com ${table.columns.length} colunas`;
         } else {
-          const totalRecords = processedData.metadata.tables.reduce((sum, t) => sum + (t.record_count || 0), 0);
           const tableInfo = processedData.metadata.tables.map(t => `${t.name} (${t.record_count} registros)`).join(', ');
           successMessage = `${processedData.metadata.tables.length} tabelas encontradas: ${tableInfo}`;
         }
@@ -311,8 +310,7 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Back Button */}
-      <motion.div 
+<motion.div 
         className="mb-6"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
@@ -327,9 +325,7 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
           Voltar para seleção de fonte
         </Button>
       </motion.div>
-
-      {/* Hero Section */}
-      <motion.div 
+<motion.div 
         className="text-center mb-12"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -446,7 +442,6 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
                 variant="secondary" 
                 size="sm"
                 onClick={() => {
-                  // Load sample data
                   const sampleData: ProcessedData = {
                     columns: [
                       { name: 'Mês', type: 'text', data: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'] },

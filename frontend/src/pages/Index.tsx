@@ -21,6 +21,7 @@ export interface ProcessedData {
   rows: any[][];
   selectedColumns: string[];
   tableName?: string;
+  source?: 'file' | 'database';
   metadata?: {
     tables: Array<{
       name: string;
@@ -40,15 +41,11 @@ export interface ProcessedData {
   };
 }
 
-// Função auxiliar para processar dados de uma tabela específica
 const getTableData = (data: ProcessedData, tableName: string, selectedColumns: string[]): ProcessedData => {
-  console.log("getTableData - Input:", { tableName, rowCount: data.rows?.length, columnCount: data.columns?.length });
-  
   if (!data) {
     return data;
   }
 
-  // Os dados já vêm do backend, apenas retornar com os selectedColumns atualizados
   return {
     ...data,
     selectedColumns: selectedColumns || data.selectedColumns || []
@@ -83,16 +80,45 @@ const Index = () => {
   };
 
   const handleViewTableData = async (tableName: string, columns: string[]) => {
-    console.log("handleViewTableData called with:", { tableName, columnsLength: columns.length });
-    
     try {
       let updatedData: ProcessedData;
 
-      // Se os dados já estão em processedData (arquivo upload), usar os dados locais
-      if (processedData && processedData.rows && processedData.rows.length > 0) {
-        console.log("Using local data from processedData");
+      const isFromDatabase = processedData?.source === 'database';
+      const isFromFile = processedData?.source === 'file';
+
+      if (isFromDatabase) {
+        const response = await queryService.getTableData(tableName);
         
-        // Filtrar colunas se necessário
+        const rows = response.data ? response.data.map((row: any) => 
+          response.columns.map((col: string) => row[col])
+        ) : [];
+        
+        const formattedColumns = response.columns.map((colName: string) => ({
+          name: colName,
+          type: 'text' as const,
+          data: []
+        }));
+
+        updatedData = {
+          ...processedData,
+          columns: formattedColumns,
+          rows: rows,
+          selectedColumns: columns,
+          source: 'database'
+        };
+      } else if (isFromFile) {
+        let filteredColumns = processedData.columns;
+        if (columns.length > 0) {
+          filteredColumns = processedData.columns.filter(col => columns.includes(col.name));
+        }
+
+        updatedData = {
+          ...processedData,
+          columns: filteredColumns,
+          selectedColumns: columns,
+          source: 'file'
+        };
+      } else {
         let filteredColumns = processedData.columns;
         if (columns.length > 0) {
           filteredColumns = processedData.columns.filter(col => columns.includes(col.name));
@@ -103,40 +129,13 @@ const Index = () => {
           columns: filteredColumns,
           selectedColumns: columns
         };
-      } else {
-        // Se não há dados locais, buscar do backend (banco de dados)
-        console.log("Fetching data from backend");
-        const response = await queryService.getTableData(tableName);
-        console.log("Table data received:", response);
-        
-        // Converter dados do backend (array de objetos) para array de arrays
-        const rows = response.data ? response.data.map((row: any) => 
-          response.columns.map((col: string) => row[col])
-        ) : [];
-        
-        // Converter colunas para o formato esperado
-        const formattedColumns = response.columns.map((colName: string) => ({
-          name: colName,
-          type: 'text' as const, // Por padrão text, pode ser refinado depois
-          data: []
-        }));
-
-        updatedData = {
-          ...processedData!,
-          columns: formattedColumns,
-          rows: rows,
-          selectedColumns: columns
-        };
       }
-      
-      console.log("Formatted table data:", { tableName, rowCount: updatedData.rows.length, columnCount: updatedData.columns.length });
       
       setProcessedData(updatedData);
       setSelectedTable(tableName);
       setSelectedColumns(columns);
       setCurrentStep('data');
     } catch (error) {
-      console.error("Erro ao buscar dados da tabela:", error);
     }
   };
 

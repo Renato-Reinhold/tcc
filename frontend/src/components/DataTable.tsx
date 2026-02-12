@@ -21,21 +21,23 @@ export const DataTable = ({ data, tableName, initialColumns = [], onGenerateChar
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 10;
 
-  console.log("DataTable - Received props:", { tableName, initialColumnsLength: initialColumns?.length, dataColumnsLength: data?.columns?.length });
-  console.log("DataTable - Full data:", data);
-
   const displayColumns = data.columns || [];
 
   const tableRows = useMemo(() => {
-    if (data.rows && data.rows.length > 0 && data.columns && Array.isArray(data.rows[0])) {
+    if (!data.rows || data.rows.length === 0) {
+      return [];
+    }
+
+    if (Array.isArray(data.rows[0]) && data.columns && data.columns.length > 0) {
       return data.rows.map(row => {
         const obj: any = {};
         data.columns.forEach((col, idx) => {
-          obj[col.name] = row[idx];
+          obj[col.name] = Array.isArray(row) ? row[idx] : row[col.name];
         });
         return obj;
       });
     }
+    
     return data.rows || [];
   }, [data.rows, data.columns]);
 
@@ -220,7 +222,7 @@ export const DataTable = ({ data, tableName, initialColumns = [], onGenerateChar
                               }
                             `}
                           >
-                            {row[column.name] || '-'}
+                            {row && row[column.name] !== undefined ? String(row[column.name]) : '-'}
                           </td>
                         ))}
                       </motion.tr>

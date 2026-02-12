@@ -65,8 +65,7 @@ export const ChartRecommendationComponent = ({
         </CardHeader>
 
         <CardContent className="pt-6 space-y-6">
-          {/* Chart Type Display */}
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+<div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div className="p-4 border-2 border-accent/50 rounded-lg bg-accent/5">
               <div className="text-3xl text-center mb-2">
                 {getChartIcon(recommendation.chart_type)}
@@ -97,9 +96,7 @@ export const ChartRecommendationComponent = ({
               </div>
             </div>
           </div>
-
-          {/* Recommendation Details */}
-          <div className="space-y-3 border-t pt-4">
+<div className="space-y-3 border-t pt-4">
             <div>
               <h4 className="text-sm font-semibold mb-2">Título Sugerido</h4>
               <div className="p-3 bg-muted/50 rounded-lg border">
@@ -131,9 +128,7 @@ export const ChartRecommendationComponent = ({
               </div>
             )}
           </div>
-
-          {/* Data Summary */}
-          <div className="border-t pt-4">
+<div className="border-t pt-4">
             <h4 className="text-sm font-semibold mb-3">Dados Processados</h4>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="p-2 bg-muted/30 rounded">
@@ -160,9 +155,7 @@ export const ChartRecommendationComponent = ({
               </div>
             </div>
           </div>
-
-          {/* Action Buttons */}
-          <div className="border-t pt-4 flex items-center justify-between gap-3">
+<div className="border-t pt-4 flex items-center justify-between gap-3">
             <Button
               variant="outline"
               onClick={onReject}
@@ -185,3 +178,4 @@ export const ChartRecommendationComponent = ({
     </motion.div>
   );
 };
+

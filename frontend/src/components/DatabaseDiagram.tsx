@@ -45,7 +45,6 @@ const TableNode = ({ data }: { data: TableNodeData }) => {
   const handleViewData = () => {
     if (data.onViewData) {
       const columnNames = data.columns.map(col => col.name);
-      console.log("Table selected:", data.label.toUpperCase(), "Columns:", columnNames);
       data.onViewData(data.label, columnNames);
     }
   };
@@ -188,7 +187,6 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
             recordCount: table.record_count || table.row_count || 0,
             selectedColumns: tableSelections[table.name] || new Set(),
             onViewData: (tableName: string, columns: string[]) => {
-              console.log("Table selected:", tableName.toUpperCase, "Columns:", columns);
               onViewTableData(tableName, columns);
             },
             onToggleColumn: handleToggleColumnInDiagram
@@ -200,7 +198,7 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
 
     const tables: any[] = [];
     
-    // Se os dados têm múltiplas tabelas (de um banco de dados)
+
     if (data.metadata && data.metadata.tables && data.metadata.tables.length > 0) {
       data.metadata.tables.forEach((table: any, index: number) => {
         tables.push({
@@ -223,7 +221,6 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
         });
       });
     } else {
-      // Se são dados de arquivo (upload)
       tables.push({
         id: 'main-table',
         type: 'table',
@@ -337,8 +334,7 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <motion.div 
+<motion.div 
         className="flex items-center justify-between"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -381,8 +377,7 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
       </motion.div>
 
       <div>
-        {/* Database Diagram */}
-        <motion.div
+<motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}

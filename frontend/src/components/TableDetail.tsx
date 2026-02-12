@@ -20,51 +20,25 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [tableRows, setTableRows] = useState<any[]>([]);
-  const [isLoadingTable, setIsLoadingTable] = useState(false);
   const itemsPerPage = 10;
   
-  // Se for dados do banco, buscar dados da tabela
   useEffect(() => {
-    const fetchTableData = async () => {
-      // Se temos metadata e a tabela é do banco, buscar dados
-      if (data.metadata && data.metadata.tables && data.metadata.tables.length > 0) {
-        setIsLoadingTable(true);
-        try {
-          const response = await fetch(
-            `http://localhost:8000/viz/tables/${tableName}/data?limit=100&offset=0`
-          );
-          const result = await response.json();
-          
-          if (response.ok) {
-            setTableRows(result.data || []);
-          } else {
-            console.error("Failed to fetch table data:", response.status, result.detail || result);
-            setTableRows([]);
-          }
-        } catch (error) {
-          console.error("Error fetching table data:", error);
-          setTableRows([]);
-        } finally {
-          setIsLoadingTable(false);
-        }
-      } else {
-        // Usar dados do CSV - converter de array de arrays para array de objetos
-        if (data.rows && data.rows.length > 0 && data.columns) {
-          const rows = data.rows.map(row => {
-            const obj: any = {};
-            data.columns.forEach((col, idx) => {
-              obj[col.name] = row[idx];
-            });
-            return obj;
+    if (data && data.rows && data.rows.length > 0 && data.columns) {
+      if (Array.isArray(data.rows[0])) {
+        const rows = data.rows.map(row => {
+          const obj: any = {};
+          data.columns.forEach((col, idx) => {
+            obj[col.name] = row[idx];
           });
-          setTableRows(rows);
-        } else {
-          setTableRows(data.rows || []);
-        }
+          return obj;
+        });
+        setTableRows(rows);
+      } else {
+        setTableRows(data.rows);
       }
-    };
-    
-    fetchTableData();
+    } else {
+      setTableRows([]);
+    }
   }, [data, tableName]);
   
   const totalPages = Math.ceil(tableRows.length / itemsPerPage);
@@ -72,12 +46,11 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
   const endIndex = startIndex + itemsPerPage;
   const currentRows = tableRows.slice(startIndex, endIndex);
   
-  // Obter colunas - se for banco, extrai dos dados; se for CSV, filtra por tableName
   let displayColumns = data.metadata && data.metadata.tables ? 
     (tableRows.length > 0 ? Object.keys(tableRows[0]).map(name => ({ 
       name, 
       type: 'text',
-      data: [...new Set(tableRows.map(row => row[name]))] // Valores únicos
+      data: [...new Set(tableRows.map(row => row[name]))]
     })) : []) :
     (data.columns || []);
 
@@ -117,8 +90,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <motion.div 
+<motion.div 
         className="flex items-center justify-between"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -220,11 +192,7 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
             </div>
           </CardHeader>
           <CardContent>
-            {isLoadingTable ? (
-              <div className="flex items-center justify-center py-8">
-                <p className="text-muted-foreground">Carregando dados da tabela...</p>
-              </div>
-            ) : tableRows.length === 0 ? (
+            {tableRows.length === 0 ? (
               <div className="flex items-center justify-center py-8">
                 <p className="text-muted-foreground">Nenhum dado disponível</p>
               </div>

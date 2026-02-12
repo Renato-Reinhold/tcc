@@ -111,6 +111,8 @@ async def connect_database(request: DatabaseConnectionRequest):
     """Estabelecer conexão com um banco de dados"""
     global _active_connector
     
+    print(f"[DEBUG] Conectando com: {request.db_type}, database={request.database}")
+    
     try:
         # Preparar parâmetros de conexão
         params = {
@@ -126,11 +128,15 @@ async def connect_database(request: DatabaseConnectionRequest):
         if request.password:
             params["password"] = request.password
         
+        print(f"[DEBUG] Parâmetros de conexão: {params}")
+        
         # Criar conector
         connector = ConnectorFactory.create(request.db_type, params)
+        print(f"[DEBUG] Conector criado: {type(connector).__name__}")
         
         # Testar conexão
         if not connector.test_connection():
+            print("[ERROR] Falha ao testar conexão")
             raise HTTPException(
                 status_code=400,
                 detail="Falha ao conectar com o banco de dados"
@@ -138,6 +144,7 @@ async def connect_database(request: DatabaseConnectionRequest):
         
         # Salvar como conexão ativa
         _active_connector = connector
+        print(f"[DEBUG] Conector salvo como ativo: {_active_connector is not None}")
         
         return {
             "success": True,
@@ -147,6 +154,9 @@ async def connect_database(request: DatabaseConnectionRequest):
         }
         
     except Exception as e:
+        print(f"[ERROR] Erro ao conectar: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=400,
             detail=f"Erro ao conectar: {str(e)}"
@@ -170,11 +180,24 @@ async def get_connected_tables():
         table_metadata = []
         for table_name in tables:
             columns = _active_connector.get_table_columns(table_name)
+            
+            # Obter contagem de registros
+            try:
+                count_query = f"SELECT COUNT(*) FROM {table_name}"
+                count_result = _active_connector.execute_query(count_query)
+                record_count = int(count_result.iloc[0, 0]) if len(count_result) > 0 else 0
+            except Exception as e:
+                print(f"[WARN] Erro ao contar registros de {table_name}: {e}")
+                record_count = 0
+            
             table_metadata.append({
                 "name": table_name,
                 "columns": columns,
-                "row_count": 0  # Será preenchido sob demanda
+                "row_count": record_count,
+                "record_count": record_count
             })
+        
+        print(f"[DEBUG] Retornando {len(table_metadata)} tabelas")
         
         return {
             "tables": table_metadata
@@ -190,17 +213,26 @@ async def get_connected_table_data(table_name: str, limit: int = 100, offset: in
     """Obter dados de uma tabela do banco conectado"""
     global _active_connector
     
+    print(f"[DEBUG] Recebido request para tabela: {table_name}")
+    print(f"[DEBUG] _active_connector disponível: {_active_connector is not None}")
+    
     if not _active_connector:
+        print("[ERROR] Nenhum conector ativo disponível")
         raise HTTPException(
             status_code=400,
             detail="Nenhum banco de dados conectado"
         )
     
     try:
+        print(f"[DEBUG] Buscando dados da tabela: {table_name} (limit={limit}, offset={offset})")
         data = _active_connector.get_table_data(table_name, limit, offset)
+        print(f"[DEBUG] Retornados {len(data.get('data', []))} registros")
         data["success"] = True
         return data
     except Exception as e:
+        print(f"[ERROR] Erro ao obter dados: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Erro ao obter dados: {str(e)}"

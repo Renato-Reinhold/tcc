@@ -240,8 +240,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Header */}
-      <motion.div 
+<motion.div 
         className="flex items-center justify-between"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -267,8 +266,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Chart Display */}
-        <motion.div 
+<motion.div 
           className="lg:col-span-3"
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -299,9 +297,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
             </CardContent>
           </Card>
         </motion.div>
-
-        {/* Customization Panel */}
-        <motion.div 
+<motion.div 
           className="lg:col-span-1 space-y-4"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -318,8 +314,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Chart Type */}
-              <div className="space-y-3">
+<div className="space-y-3">
                 <Label className="text-sm font-medium">Tipo de Gráfico</Label>
                 <Select value={chartType} onValueChange={(value: ChartType) => setChartType(value)}>
                   <SelectTrigger>
@@ -351,9 +346,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
               </div>
 
               <Separator />
-
-              {/* Color Scheme */}
-              <div className="space-y-3">
+<div className="space-y-3">
                 <Label className="text-sm font-medium flex items-center gap-2">
                   <Palette className="h-4 w-4" />
                   Paleta de Cores
@@ -384,9 +377,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
               </div>
 
               <Separator />
-
-              {/* Titles */}
-              <div className="space-y-4">
+<div className="space-y-4">
                 <Label className="text-sm font-medium flex items-center gap-2">
                   <Type className="h-4 w-4" />
                   Títulos e Rótulos
@@ -424,9 +415,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
               </div>
 
               <Separator />
-
-              {/* Actions */}
-              <div className="space-y-3">
+<div className="space-y-3">
                 <Button 
                   className="w-full bg-gradient-primary hover:shadow-glow"
                   onClick={() => {
