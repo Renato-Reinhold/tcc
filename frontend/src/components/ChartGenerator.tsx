@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import { 
   ResponsiveContainer, 
   BarChart, 
@@ -112,11 +114,106 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
     setChartType(recommendedChartType);
   });
 
-  const handleExport = (format: 'png' | 'svg' | 'pdf') => {
-    toast({
-      title: `Exportando como ${format.toUpperCase()}`,
-      description: "Seu gráfico será baixado em instantes"
-    });
+  const handleExport = async (format: 'png' | 'svg' | 'pdf') => {
+    try {
+      const chartElement = document.getElementById('chart-container');
+      if (!chartElement) {
+        toast({
+          title: "Erro",
+          description: "Gráfico não encontrado",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      const filename = `grafico-${chartTitle.replace(/\s+/g, '-').toLowerCase()}-${timestamp}`;
+
+      if (format === 'png') {
+        const canvas = await html2canvas(chartElement, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          logging: false
+        });
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = `${filename}.png`;
+        link.click();
+        
+        toast({
+          title: "Sucesso!",
+          description: "Gráfico exportado como PNG"
+        });
+      } else if (format === 'svg') {
+        const svg = chartElement.querySelector('svg');
+        if (!svg) {
+          toast({
+            title: "Erro",
+            description: "SVG não encontrado no gráfico",
+            variant: "destructive"
+          });
+          return;
+        }
+
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svg);
+        const blob = new Blob([svgString], { type: 'image/svg+xml' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${filename}.svg`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+
+        toast({
+          title: "Sucesso!",
+          description: "Gráfico exportado como SVG"
+        });
+      } else if (format === 'pdf') {
+        const canvas = await html2canvas(chartElement, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          logging: false
+        });
+
+        const imgWidth = 210;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let heightLeft = imgHeight;
+
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageHeightPdf = pdf.internal.pageSize.getHeight();
+
+        const imgData = canvas.toDataURL('image/png');
+        let y = 10;
+
+        pdf.setFontSize(14);
+        pdf.text(chartTitle, 10, y);
+        y += 15;
+
+        while (heightLeft > 0) {
+          const height = Math.min(pageHeightPdf - 25, imgHeight);
+          pdf.addImage(imgData, 'PNG', 10, y, imgWidth - 20, height);
+          heightLeft -= height;
+          if (heightLeft > 0) {
+            pdf.addPage();
+            y = 10;
+          }
+        }
+
+        pdf.save(`${filename}.pdf`);
+
+        toast({
+          title: "Sucesso!",
+          description: "Gráfico exportado como PDF"
+        });
+      }
+    } catch (error: any) {
+      console.error('Erro ao exportar:', error);
+      toast({
+        title: "Erro ao exportar",
+        description: "Ocorreu um erro ao exportar o gráfico",
+        variant: "destructive"
+      });
+    }
   };
 
   if (isGenerating) {
@@ -292,7 +389,7 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
                 </div>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent id="chart-container">
               {renderChart()}
             </CardContent>
           </Card>

@@ -5,6 +5,8 @@ pandas
 numpy
 sqlalchemy
 psycopg2-binary
+mysql-connector-python
+pyodbc
 matplotlib
 scikit-learn
 pydantic
@@ -12,3 +14,4 @@ jupyter
 python-dotenv
 requests
 pytest
+joblib
