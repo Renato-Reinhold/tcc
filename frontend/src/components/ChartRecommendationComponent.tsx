@@ -6,6 +6,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import type { ExecutionResponse, ChartRecommendation } from "@/types/query";
+import type { DataValue } from "@/types/chart";
+import { ChartRenderer } from "@/components/ChartRenderer";
+import { getChartModel } from "@/models/ChartRegistry";
+import { normalizeChartType } from "@/types/chart";
 
 interface ChartRecommendationProps {
   executionResult: ExecutionResponse;
@@ -13,15 +17,26 @@ interface ChartRecommendationProps {
   onReject?: () => void;
 }
 
+const DEFAULT_COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+];
+
 export const ChartRecommendationComponent = ({
   executionResult,
   onAcceptChart,
   onReject,
 }: ChartRecommendationProps) => {
-  const [recommendation] = useState<ChartRecommendation>(
+  const [recommendation, setRecommendation] = useState<ChartRecommendation>(
     executionResult.recommendation
   );
   const [isAccepting, setIsAccepting] = useState(false);
+
+  const normalizedType = normalizeChartType(recommendation.chart_type);
+  const model = getChartModel(normalizedType);
 
   const handleAccept = async () => {
     setIsAccepting(true);
@@ -32,18 +47,18 @@ export const ChartRecommendationComponent = ({
     }
   };
 
-  const getChartIcon = (type: string) => {
-    const icons: Record<string, string> = {
-      bar: "📊",
-      line: "📈",
-      scatter: "📍",
-      pie: "🥧",
-      area: "📉",
-      histogram: "📐",
-      column: "📋",
-    };
-    return icons[type] || "📊";
+  const handleSelectAlternative = (chartType: string) => {
+    setRecommendation((prev) => ({
+      ...prev,
+      chart_type: chartType,
+      reason: `Alternativa selecionada manualmente`,
+    }));
   };
+
+  const previewData = executionResult.result.data.slice(0, 30) as Array<
+    Record<string, DataValue>
+  >;
+  const columns = executionResult.result.columns;
 
   return (
     <motion.div
@@ -65,38 +80,80 @@ export const ChartRecommendationComponent = ({
         </CardHeader>
 
         <CardContent className="pt-6 space-y-6">
-<div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <div className="p-4 border-2 border-accent/50 rounded-lg bg-accent/5">
-              <div className="text-3xl text-center mb-2">
-                {getChartIcon(recommendation.chart_type)}
-              </div>
+          {/* Tipo principal + campos */}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="p-4 border-2 border-accent/50 rounded-lg bg-accent/5 flex flex-col items-center justify-center gap-1">
+              <div className="text-3xl">{model.icon}</div>
               <h3 className="text-center font-semibold text-sm text-accent">
-                {recommendation.chart_type.toUpperCase()}
+                {model.label}
               </h3>
             </div>
 
             <div className="p-4 border rounded-lg bg-muted/50">
               <div className="text-xs text-muted-foreground mb-2">Campo X</div>
-              <div className="font-medium text-sm truncate">
-                {recommendation.x_field}
-              </div>
+              <div className="font-medium text-sm truncate">{recommendation.x_field}</div>
             </div>
 
             <div className="p-4 border rounded-lg bg-muted/50">
               <div className="text-xs text-muted-foreground mb-2">Campo Y</div>
-              <div className="font-medium text-sm truncate">
-                {recommendation.y_field}
-              </div>
+              <div className="font-medium text-sm truncate">{recommendation.y_field}</div>
             </div>
 
             <div className="p-4 border rounded-lg bg-muted/50">
               <div className="text-xs text-muted-foreground mb-2">Registros</div>
-              <div className="font-medium text-sm">
-                {executionResult.result.row_count}
-              </div>
+              <div className="font-medium text-sm">{executionResult.result.row_count}</div>
             </div>
           </div>
-<div className="space-y-3 border-t pt-4">
+
+          {/* Alternativas do modelo ML */}
+          {recommendation.alternatives && recommendation.alternatives.length > 1 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Outras sugestões do modelo</h4>
+              <div className="flex flex-wrap gap-2">
+                {recommendation.alternatives.map((alt) => {
+                  const altNorm = normalizeChartType(alt.chart_type);
+                  const altModel = getChartModel(altNorm);
+                  const isSelected = normalizeChartType(recommendation.chart_type) === altNorm;
+                  return (
+                    <button
+                      key={alt.chart_type}
+                      onClick={() => handleSelectAlternative(alt.chart_type)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                        isSelected
+                          ? "bg-accent text-accent-foreground border-accent"
+                          : "bg-muted/40 border-border hover:bg-muted"
+                      }`}
+                    >
+                      <span>{altModel.icon}</span>
+                      <span className="font-medium">{altModel.label}</span>
+                      <span className="text-muted-foreground ml-1">
+                        {(alt.probability * 100).toFixed(0)}%
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Preview do gráfico */}
+          {previewData.length > 0 && (
+            <div className="border rounded-lg p-3 bg-muted/20">
+              <h4 className="text-sm font-semibold mb-3">Pré-visualização</h4>
+              <ChartRenderer
+                chartType={recommendation.chart_type}
+                data={previewData}
+                xField={recommendation.x_field}
+                yField={recommendation.y_field}
+                columns={columns}
+                colors={DEFAULT_COLORS}
+                title={recommendation.title}
+              />
+            </div>
+          )}
+
+          {/* Detalhes */}
+          <div className="space-y-3 border-t pt-4">
             <div>
               <h4 className="text-sm font-semibold mb-2">Título Sugerido</h4>
               <div className="p-3 bg-muted/50 rounded-lg border">
@@ -111,56 +168,23 @@ export const ChartRecommendationComponent = ({
                 <AlertDescription>{recommendation.reason}</AlertDescription>
               </Alert>
             </div>
+          </div>
 
-            {recommendation.configuration && (
-              <div>
-                <h4 className="text-sm font-semibold mb-2">Configuração</h4>
-                <div className="p-3 bg-muted/30 rounded-lg text-xs font-mono space-y-1">
-                  {Object.entries(recommendation.configuration).map(([key, value]) => (
-                    <div key={key}>
-                      <span className="text-muted-foreground">{key}:</span>{" "}
-                      <span className="text-primary">
-                        {typeof value === "string" ? `"${value}"` : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-<div className="border-t pt-4">
-            <h4 className="text-sm font-semibold mb-3">Dados Processados</h4>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="p-2 bg-muted/30 rounded">
-                <span className="text-muted-foreground">Total de Colunas:</span>
-                <span className="ml-2 font-medium">
-                  {executionResult.result.columns.length}
-                </span>
-              </div>
-              <div className="p-2 bg-muted/30 rounded">
-                <span className="text-muted-foreground">Total de Linhas:</span>
-                <span className="ml-2 font-medium">
-                  {executionResult.result.row_count}
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 p-2 bg-muted/30 rounded text-sm">
-              <span className="text-muted-foreground">Colunas:</span>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {executionResult.result.columns.map((col) => (
-                  <Badge key={col} variant="outline" className="text-xs">
-                    {col}
-                  </Badge>
-                ))}
-              </div>
+          {/* Dados processados */}
+          <div className="border-t pt-4">
+            <h4 className="text-sm font-semibold mb-3">Colunas Disponíveis</h4>
+            <div className="flex flex-wrap gap-1">
+              {columns.map((col) => (
+                <Badge key={col} variant="outline" className="text-xs">
+                  {col}
+                </Badge>
+              ))}
             </div>
           </div>
-<div className="border-t pt-4 flex items-center justify-between gap-3">
-            <Button
-              variant="outline"
-              onClick={onReject}
-              className="flex-1"
-            >
+
+          {/* Ações */}
+          <div className="border-t pt-4 flex items-center justify-between gap-3">
+            <Button variant="outline" onClick={onReject} className="flex-1">
               <RotateCcw className="h-4 w-4 mr-2" />
               Tentar Outro
             </Button>
@@ -178,4 +202,3 @@ export const ChartRecommendationComponent = ({
     </motion.div>
   );
 };
-

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ChevronLeft, Download, Palette, Type, BarChart3, LineChart as LineIcon, PieChart as PieIcon, ScatterChart, Settings, Zap, ArrowLeft } from "lucide-react";
+import { ChevronLeft, Download, Palette, Type, Settings, Zap, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,215 +10,168 @@ import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
-import { 
-  ResponsiveContainer, 
-  BarChart, 
-  Bar, 
-  LineChart, 
-  Line, 
-  PieChart, 
-  Pie, 
-  Cell, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend,
-  ScatterChart as RechartsScatterChart,
-  Scatter
-} from "recharts";
 import type { ProcessedData } from "@/pages/Index";
 import { toast } from "@/hooks/use-toast";
+import { ChartRenderer } from "@/components/ChartRenderer";
+import { ALL_CHART_MODELS } from "@/models/ChartRegistry";
+import { normalizeChartType } from "@/types/chart";
+import type { ChartType, DataValue } from "@/types/chart";
 
 interface ChartGeneratorProps {
   data: ProcessedData;
   selectedColumns: string[];
+  /** Tipo recomendado pelo backend (string livre) */
+  recommendedType?: string;
   onBackToData: () => void;
   onBackToUpload: () => void;
 }
 
-type ChartType = 'bar' | 'line' | 'pie' | 'scatter';
-
-const chartTypes = [
-  { value: 'bar', label: 'Gráfico de Barras', icon: BarChart3, description: 'Ideal para comparar categorias' },
-  { value: 'line', label: 'Gráfico de Linhas', icon: LineIcon, description: 'Perfeito para mostrar tendências' },
-  { value: 'pie', label: 'Gráfico de Pizza', icon: PieIcon, description: 'Ótimo para mostrar proporções' },
-  { value: 'scatter', label: 'Gráfico de Dispersão', icon: ScatterChart, description: 'Ideal para correlações' }
-];
-
 const colorSchemes = [
   { name: 'Padrão', colors: ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'] },
-  { name: 'Azul', colors: ['#3B82F6', '#1D4ED8', '#1E40AF', '#1E3A8A', '#312E81'] },
-  { name: 'Verde', colors: ['#10B981', '#059669', '#047857', '#065F46', '#064E3B'] },
-  { name: 'Roxo', colors: ['#8B5CF6', '#7C3AED', '#6D28D9', '#5B21B6', '#4C1D95'] },
-  { name: 'Laranja', colors: ['#F59E0B', '#D97706', '#B45309', '#92400E', '#78350F'] }
+  { name: 'Azul',    colors: ['#3B82F6', '#1D4ED8', '#1E40AF', '#1E3A8A', '#312E81'] },
+  { name: 'Verde',   colors: ['#10B981', '#059669', '#047857', '#065F46', '#064E3B'] },
+  { name: 'Roxo',    colors: ['#8B5CF6', '#7C3AED', '#6D28D9', '#5B21B6', '#4C1D95'] },
+  { name: 'Laranja', colors: ['#F59E0B', '#D97706', '#B45309', '#92400E', '#78350F'] },
 ];
 
-export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUpload }: ChartGeneratorProps) => {
+export const ChartGenerator = ({
+  data,
+  selectedColumns,
+  recommendedType,
+  onBackToData,
+  onBackToUpload,
+}: ChartGeneratorProps) => {
   const [isGenerating, setIsGenerating] = useState(true);
-  const [chartType, setChartType] = useState<ChartType>('bar');
   const [colorScheme, setColorScheme] = useState(0);
   const [chartTitle, setChartTitle] = useState('Gráfico dos Dados');
   const [xAxisTitle, setXAxisTitle] = useState('');
   const [yAxisTitle, setYAxisTitle] = useState('');
+
+  // Tipo inicial vem do backend (recomendado) ou é inferido localmente
+  const localRecommended = useMemo<ChartType>(() => {
+    if (recommendedType) return normalizeChartType(recommendedType);
+    const numCols = selectedColumns.filter((c) => {
+      const col = data.columns.find((dc) => dc.name === c);
+      return col?.type === 'number';
+    });
+    const dateCols = selectedColumns.filter((c) => {
+      const col = data.columns.find((dc) => dc.name === c);
+      return col?.type === 'date';
+    });
+    if (dateCols.length > 0 && numCols.length > 0) return 'line';
+    if (numCols.length >= 2) return 'scatter';
+    return 'bar';
+  }, [recommendedType, selectedColumns, data.columns]);
+
+  const [chartType, setChartType] = useState<ChartType>(localRecommended);
 
   useState(() => {
     const timer = setTimeout(() => {
       setIsGenerating(false);
       toast({
         title: "Gráfico gerado com sucesso!",
-        description: "Seu gráfico foi criado e está pronto para personalização"
+        description: "Seu gráfico foi criado e está pronto para personalização",
       });
-    }, 3000);
+    }, 2000);
     return () => clearTimeout(timer);
   });
 
-  const chartData = useMemo(() => {
-    const selectedColumnsData = selectedColumns.map(colName => 
-      data.columns.find(col => col.name === colName)
-    ).filter(Boolean);
+  // Dados mapeados para array de objetos
+  const chartData = useMemo((): Array<Record<string, DataValue>> => {
+    if (!data.rows || data.rows.length === 0) return [];
 
-    return data.rows.map(row => {
-      const item: any = {};
-      selectedColumns.forEach((colName, index) => {
-        const colIndex = data.columns.findIndex(col => col.name === colName);
-        item[colName] = row[colIndex];
+    return data.rows.map((row) => {
+      const item: Record<string, DataValue> = {};
+      // Support both array rows (CSV/DB) and object rows
+      const isObjectRow =
+        row !== null && typeof row === 'object' && !Array.isArray(row);
+
+      selectedColumns.forEach((colName) => {
+        let rawValue: unknown;
+        if (isObjectRow) {
+          rawValue = (row as Record<string, unknown>)[colName];
+        } else {
+          const colIndex = data.columns.findIndex((col) => col.name === colName);
+          rawValue = colIndex >= 0 ? (row as unknown[])[colIndex] : undefined;
+        }
+        // Coerce numeric strings so Recharts scales work correctly
+        if (
+          typeof rawValue === 'string' &&
+          rawValue.trim() !== '' &&
+          !Number.isNaN(Number(rawValue))
+        ) {
+          item[colName] = Number(rawValue);
+        } else {
+          item[colName] = rawValue as DataValue;
+        }
       });
       return item;
     });
   }, [data, selectedColumns]);
 
-  const recommendedChartType = useMemo(() => {
-    const numericColumns = selectedColumns.filter(colName => {
-      const col = data.columns.find(c => c.name === colName);
-      return col?.type === 'number';
-    });
-
-    const textColumns = selectedColumns.filter(colName => {
-      const col = data.columns.find(c => c.name === colName);
-      return col?.type === 'text';
-    });
-
-    const dateColumns = selectedColumns.filter(colName => {
-      const col = data.columns.find(c => c.name === colName);
-      return col?.type === 'date';
-    });
-
-    if (dateColumns.length > 0 && numericColumns.length > 0) return 'line';
-    if (textColumns.length === 1 && numericColumns.length === 1) return 'bar';
-    if (numericColumns.length >= 2) return 'scatter';
-    return 'bar';
-  }, [data.columns, selectedColumns]);
-
-  useState(() => {
-    setChartType(recommendedChartType);
-  });
+  const xField = selectedColumns[0] ?? '';
+  const yField = selectedColumns[1] ?? selectedColumns[0] ?? '';
 
   const handleExport = async (format: 'png' | 'svg' | 'pdf') => {
     try {
       const chartElement = document.getElementById('chart-container');
       if (!chartElement) {
-        toast({
-          title: "Erro",
-          description: "Gráfico não encontrado",
-          variant: "destructive"
-        });
+        toast({ title: "Erro", description: "Gráfico não encontrado", variant: "destructive" });
         return;
       }
-
       const timestamp = new Date().toISOString().slice(0, 10);
       const filename = `grafico-${chartTitle.replace(/\s+/g, '-').toLowerCase()}-${timestamp}`;
 
       if (format === 'png') {
-        const canvas = await html2canvas(chartElement, {
-          backgroundColor: '#ffffff',
-          scale: 2,
-          logging: false
-        });
+        const canvas = await html2canvas(chartElement, { backgroundColor: '#ffffff', scale: 2, logging: false });
         const link = document.createElement('a');
         link.href = canvas.toDataURL('image/png');
         link.download = `${filename}.png`;
         link.click();
-        
-        toast({
-          title: "Sucesso!",
-          description: "Gráfico exportado como PNG"
-        });
+        toast({ title: "Sucesso!", description: "Gráfico exportado como PNG" });
       } else if (format === 'svg') {
         const svg = chartElement.querySelector('svg');
         if (!svg) {
-          toast({
-            title: "Erro",
-            description: "SVG não encontrado no gráfico",
-            variant: "destructive"
-          });
+          toast({ title: "Erro", description: "SVG não encontrado no gráfico", variant: "destructive" });
           return;
         }
-
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(svg);
+        const svgString = new XMLSerializer().serializeToString(svg);
         const blob = new Blob([svgString], { type: 'image/svg+xml' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = `${filename}.svg`;
         link.click();
         URL.revokeObjectURL(link.href);
-
-        toast({
-          title: "Sucesso!",
-          description: "Gráfico exportado como SVG"
-        });
+        toast({ title: "Sucesso!", description: "Gráfico exportado como SVG" });
       } else if (format === 'pdf') {
-        const canvas = await html2canvas(chartElement, {
-          backgroundColor: '#ffffff',
-          scale: 2,
-          logging: false
-        });
-
+        const canvas = await html2canvas(chartElement, { backgroundColor: '#ffffff', scale: 2, logging: false });
         const imgWidth = 210;
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
         let heightLeft = imgHeight;
-
         const pdf = new jsPDF('p', 'mm', 'a4');
-        const pageHeightPdf = pdf.internal.pageSize.getHeight();
-
+        const pageH = pdf.internal.pageSize.getHeight();
         const imgData = canvas.toDataURL('image/png');
         let y = 10;
-
         pdf.setFontSize(14);
         pdf.text(chartTitle, 10, y);
         y += 15;
-
         while (heightLeft > 0) {
-          const height = Math.min(pageHeightPdf - 25, imgHeight);
-          pdf.addImage(imgData, 'PNG', 10, y, imgWidth - 20, height);
-          heightLeft -= height;
-          if (heightLeft > 0) {
-            pdf.addPage();
-            y = 10;
-          }
+          const h = Math.min(pageH - 25, imgHeight);
+          pdf.addImage(imgData, 'PNG', 10, y, imgWidth - 20, h);
+          heightLeft -= h;
+          if (heightLeft > 0) { pdf.addPage(); y = 10; }
         }
-
         pdf.save(`${filename}.pdf`);
-
-        toast({
-          title: "Sucesso!",
-          description: "Gráfico exportado como PDF"
-        });
+        toast({ title: "Sucesso!", description: "Gráfico exportado como PDF" });
       }
-    } catch (error: any) {
-      console.error('Erro ao exportar:', error);
-      toast({
-        title: "Erro ao exportar",
-        description: "Ocorreu um erro ao exportar o gráfico",
-        variant: "destructive"
-      });
+    } catch {
+      toast({ title: "Erro ao exportar", description: "Ocorreu um erro ao exportar o gráfico", variant: "destructive" });
     }
   };
 
   if (isGenerating) {
     return (
-      <motion.div 
+      <motion.div
         className="flex flex-col items-center justify-center min-h-[60vh] text-center"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -243,101 +196,11 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
     );
   }
 
-  const renderChart = () => {
-    const colors = colorSchemes[colorScheme].colors;
-    
-    switch (chartType) {
-      case 'bar':
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={selectedColumns[0]} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {selectedColumns.slice(1).map((column, index) => (
-                <Bar 
-                  key={column} 
-                  dataKey={column} 
-                  fill={colors[index % colors.length]} 
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        );
-
-      case 'line':
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey={selectedColumns[0]} />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              {selectedColumns.slice(1).map((column, index) => (
-                <Line 
-                  key={column} 
-                  type="monotone" 
-                  dataKey={column} 
-                  stroke={colors[index % colors.length]}
-                  strokeWidth={3}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        );
-
-      case 'pie':
-        const pieData = chartData.map(item => ({
-          name: item[selectedColumns[0]],
-          value: item[selectedColumns[1]]
-        }));
-        
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={120}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        );
-
-      case 'scatter':
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <RechartsScatterChart data={chartData}>
-              <CartesianGrid />
-              <XAxis dataKey={selectedColumns[0]} />
-              <YAxis dataKey={selectedColumns[1]} />
-              <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-              <Scatter name="Dados" dataKey={selectedColumns[1]} fill={colors[0]} />
-            </RechartsScatterChart>
-          </ResponsiveContainer>
-        );
-
-      default:
-        return null;
-    }
-  };
+  const colors = colorSchemes[colorScheme].colors;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-<motion.div 
+      <motion.div
         className="flex items-center justify-between"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -363,7 +226,8 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-<motion.div 
+        {/* Área do gráfico */}
+        <motion.div
           className="lg:col-span-3"
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -375,26 +239,33 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
                 <span>{chartTitle}</span>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleExport('png')}>
-                    <Download className="h-4 w-4 mr-2" />
-                    PNG
+                    <Download className="h-4 w-4 mr-2" />PNG
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => handleExport('svg')}>
-                    <Download className="h-4 w-4 mr-2" />
-                    SVG
+                    <Download className="h-4 w-4 mr-2" />SVG
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => handleExport('pdf')}>
-                    <Download className="h-4 w-4 mr-2" />
-                    PDF
+                    <Download className="h-4 w-4 mr-2" />PDF
                   </Button>
                 </div>
               </CardTitle>
             </CardHeader>
             <CardContent id="chart-container">
-              {renderChart()}
+              <ChartRenderer
+                chartType={chartType}
+                data={chartData}
+                xField={xAxisTitle || xField}
+                yField={yAxisTitle || yField}
+                columns={selectedColumns}
+                colors={colors}
+                title={chartTitle}
+              />
             </CardContent>
           </Card>
         </motion.div>
-<motion.div 
+
+        {/* Painel de personalização */}
+        <motion.div
           className="lg:col-span-1 space-y-4"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -406,49 +277,47 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
                 <Settings className="h-5 w-5" />
                 Personalização
               </CardTitle>
-              <CardDescription>
-                Customize sua visualização
-              </CardDescription>
+              <CardDescription>Customize sua visualização</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-<div className="space-y-3">
+              {/* Tipo de gráfico */}
+              <div className="space-y-3">
                 <Label className="text-sm font-medium">Tipo de Gráfico</Label>
-                <Select value={chartType} onValueChange={(value: ChartType) => setChartType(value)}>
+                <Select value={chartType} onValueChange={(v) => setChartType(v as ChartType)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    {chartTypes.map((type) => {
-                      const Icon = type.icon;
-                      return (
-                        <SelectItem key={type.value} value={type.value}>
-                          <div className="flex items-center gap-2">
-                            <Icon className="h-4 w-4" />
-                            <div>
-                              <div className="font-medium">{type.label}</div>
-                              <div className="text-xs text-muted-foreground">{type.description}</div>
-                            </div>
+                  <SelectContent className="max-h-72">
+                    {ALL_CHART_MODELS.map((model) => (
+                      <SelectItem key={model.type} value={model.type}>
+                        <div className="flex items-center gap-2">
+                          <span>{model.icon}</span>
+                          <div>
+                            <div className="font-medium">{model.label}</div>
+                            <div className="text-xs text-muted-foreground">{model.description}</div>
                           </div>
-                        </SelectItem>
-                      );
-                    })}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-                {chartType === recommendedChartType && (
+                {chartType === localRecommended && (
                   <Badge variant="outline" className="w-fit bg-primary/10 text-primary border-primary/30">
                     <Zap className="h-3 w-3 mr-1" />
-                    Recomendado
+                    Recomendado pela IA
                   </Badge>
                 )}
               </div>
 
               <Separator />
-<div className="space-y-3">
+
+              {/* Paleta de cores */}
+              <div className="space-y-3">
                 <Label className="text-sm font-medium flex items-center gap-2">
                   <Palette className="h-4 w-4" />
                   Paleta de Cores
                 </Label>
-                <Select value={colorScheme.toString()} onValueChange={(value) => setColorScheme(parseInt(value))}>
+                <Select value={colorScheme.toString()} onValueChange={(v) => setColorScheme(parseInt(v))}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -457,12 +326,8 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
                       <SelectItem key={index} value={index.toString()}>
                         <div className="flex items-center gap-2">
                           <div className="flex gap-1">
-                            {scheme.colors.slice(0, 3).map((color, colorIndex) => (
-                              <div 
-                                key={colorIndex}
-                                className="w-3 h-3 rounded-full"
-                                style={{ backgroundColor: color }}
-                              />
+                            {scheme.colors.slice(0, 3).map((color) => (
+                              <div key={color} className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
                             ))}
                           </div>
                           {scheme.name}
@@ -474,65 +339,32 @@ export const ChartGenerator = ({ data, selectedColumns, onBackToData, onBackToUp
               </div>
 
               <Separator />
-<div className="space-y-4">
+
+              {/* Títulos */}
+              <div className="space-y-4">
                 <Label className="text-sm font-medium flex items-center gap-2">
                   <Type className="h-4 w-4" />
                   Títulos e Rótulos
                 </Label>
-                
                 <div className="space-y-2">
                   <Label htmlFor="chart-title" className="text-xs">Título do Gráfico</Label>
-                  <Input
-                    id="chart-title"
-                    value={chartTitle}
-                    onChange={(e) => setChartTitle(e.target.value)}
-                    placeholder="Digite o título..."
-                  />
+                  <Input id="chart-title" value={chartTitle} onChange={(e) => setChartTitle(e.target.value)} placeholder="Digite o título..." />
                 </div>
-                
                 <div className="space-y-2">
-                  <Label htmlFor="x-axis" className="text-xs">Título do Eixo X</Label>
-                  <Input
-                    id="x-axis"
-                    value={xAxisTitle}
-                    onChange={(e) => setXAxisTitle(e.target.value)}
-                    placeholder={selectedColumns[0] || "Eixo X"}
-                  />
+                  <Label htmlFor="x-axis" className="text-xs">Campo X</Label>
+                  <Input id="x-axis" value={xAxisTitle} onChange={(e) => setXAxisTitle(e.target.value)} placeholder={xField || "Eixo X"} />
                 </div>
-                
                 <div className="space-y-2">
-                  <Label htmlFor="y-axis" className="text-xs">Título do Eixo Y</Label>
-                  <Input
-                    id="y-axis"
-                    value={yAxisTitle}
-                    onChange={(e) => setYAxisTitle(e.target.value)}
-                    placeholder={selectedColumns[1] || "Eixo Y"}
-                  />
+                  <Label htmlFor="y-axis" className="text-xs">Campo Y</Label>
+                  <Input id="y-axis" value={yAxisTitle} onChange={(e) => setYAxisTitle(e.target.value)} placeholder={yField || "Eixo Y"} />
                 </div>
               </div>
 
               <Separator />
-<div className="space-y-3">
-                <Button 
-                  className="w-full bg-gradient-primary hover:shadow-glow"
-                  onClick={() => {
-                    toast({
-                      title: "Gráfico salvo!",
-                      description: "Seu gráfico foi salvo no painel para visualização posterior"
-                    });
-                  }}
-                >
-                  Salvar no Painel
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full" 
-                  onClick={onBackToUpload}
-                >
-                  <ChevronLeft className="h-4 w-4 mr-2" />
-                  Novo Gráfico
-                </Button>
-              </div>
+              <Button variant="outline" className="w-full" onClick={onBackToUpload}>
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                Novo Gráfico
+              </Button>
             </CardContent>
           </Card>
         </motion.div>

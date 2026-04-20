@@ -12,7 +12,13 @@ from app.data.pandas_executor import PandasExecutor
 from app.data.loader import DataLoader
 from app.data.metadata import extract_metadata
 from app.data.connectors import ConnectorFactory, DatabaseConnector
-from app.services.recommender import recommend_chart
+from app.services.recommender import recommend_chart_top_k
+from app.data.chart_query_builder import (
+    ChartQueryBuilder,
+    _build_filter_clauses,
+    add_pareto_cumulative,
+    normalize_chart_type,
+)
 
 router = APIRouter()
 
@@ -43,11 +49,17 @@ class QueryModelRequest(BaseModel):
     group_by: List[str] = []
     aggregations: List[AggregationRequest] = []
     filters: Optional[List[FilterRequest]] = None
+    chart_type: Optional[str] = None   # drives SQL/Pandas shape; inferred by ML if omitted
+    z_column: Optional[str] = None    # third column for heatmap / pivot table
 
 class QueryExecutionResponse(BaseModel):
     data: List[dict]
     columns: List[str]
     row_count: int
+
+class ChartAlternative(BaseModel):
+    chart_type: str
+    probability: float
 
 class ChartRecommendationResponse(BaseModel):
     chart_type: str
@@ -55,6 +67,7 @@ class ChartRecommendationResponse(BaseModel):
     reason: str
     x_field: str
     y_field: str
+    alternatives: Optional[List[ChartAlternative]] = None
     configuration: Optional[dict] = None
 
 class ExecutionResponse(BaseModel):
@@ -241,60 +254,119 @@ async def get_connected_table_data(table_name: str, limit: int = 100, offset: in
 # ============ Endpoints de Execução ============
 
 
+@router.post("/execute")
 async def execute_query(query_req: QueryModelRequest):
     """
-    Fluxo Principal: 
-    QueryModel → SQL/Pandas Generator → DataFrame → Recomendação de Gráfico
+    Fluxo Principal:
+    QueryModel → ChartQueryBuilder (SQL/Pandas) → DataFrame → Recomendação de Gráfico
+
+    O campo `chart_type` determina a forma dos dados retornados:
+      - bar/column : GROUP BY x, AGG(y) DESC  LIMIT 30
+      - line/area  : GROUP BY x, AGG(y) ASC   (série temporal ordenada)
+      - scatter    : SELECT x, y raw           LIMIT 500
+      - pie        : GROUP BY x, AGG(y) DESC   LIMIT 8
+      - histogram  : SELECT x raw              LIMIT 2000
+      - heatmap    : GROUP BY x, y, AGG(z)
+      - treemap    : GROUP BY x, AGG(y) DESC   LIMIT 50
+      - pareto     : GROUP BY x, AGG(y) DESC + cumulative_pct
+      - kpi        : SELECT AGG(y) AS value    (escalar)
+      - pivottable : GROUP BY x, y, AGG(z)
+      - radar      : GROUP BY x, AGG(y)        LIMIT 8
+      - map        : GROUP BY geo, AGG(y) DESC LIMIT 200
+      - table      : SELECT * LIMIT 100
     """
     start_time = time.time()
-    
-    try:
-        # 1. Criar QueryModel abstrato
-        query_model = QueryModel(
-            source_type=query_req.source_type,
-            tables=query_req.tables,
-            x_column=query_req.group_by[0] if query_req.group_by else query_req.tables[0],
-            y_column=query_req.aggregations[0].field if query_req.aggregations else None,
-            filters=query_req.filters or []
-        )
-        query_model.group_by = query_req.group_by
-        query_model.aggregations = [
-            {
-                'field': agg.field,
-                'func': agg.func,
-                'alias': agg.alias or f"{agg.func}({agg.field})"
-            }
-            for agg in query_req.aggregations
-        ]
 
-        # 2. Executar Query (escolher entre SQL ou Pandas)
-        if query_req.source_type == 'database':
-            # SQL Generator
-            sql_gen = SQLGenerator()
-            sql = sql_gen.generate(query_model, None, query_req.base_table)
-            loader = DataLoader()
-            df = loader.execute_sql(sql)
+    try:
+        # ── Parse request fields ─────────────────────────────────────────────
+        chart_type = normalize_chart_type(query_req.chart_type or "bar")
+        x_col = query_req.group_by[0] if query_req.group_by else ""
+        z_col = query_req.z_column
+
+        agg_func = "sum"
+        y_col = ""
+        if query_req.aggregations:
+            y_col = query_req.aggregations[0].field
+            agg_func = query_req.aggregations[0].func or "sum"
+
+        filter_clauses = _build_filter_clauses(query_req.filters or [])
+        builder = ChartQueryBuilder()
+
+        # ── Execute query ────────────────────────────────────────────────────
+        if query_req.source_type == "database":
+            sql = builder.build_sql(
+                chart_type=chart_type,
+                base_table=query_req.base_table,
+                x_col=x_col,
+                y_col=y_col,
+                agg_func=agg_func,
+                z_col=z_col,
+                filters=filter_clauses,
+            )
+            # Use active connector if available, otherwise fall back to DataLoader
+            try:
+                if _active_connector is not None:
+                    df = _active_connector.execute_query(sql)
+                else:
+                    loader = DataLoader()
+                    df = loader.execute_sql(sql)
+            except Exception as sql_err:
+                # If the aggregation column is not numeric (e.g. text), retry with COUNT(*)
+                err_str = str(sql_err).lower()
+                if y_col and ("function sum" in err_str or "function avg" in err_str or
+                              "operator does not exist" in err_str or "cannot be used" in err_str):
+                    fallback_sql = builder.build_sql(
+                        chart_type=chart_type,
+                        base_table=query_req.base_table,
+                        x_col=x_col,
+                        y_col="",           # empty → COUNT(*)
+                        agg_func="count",
+                        z_col=z_col,
+                        filters=filter_clauses,
+                    )
+                    if _active_connector is not None:
+                        df = _active_connector.execute_query(fallback_sql)
+                    else:
+                        loader = DataLoader()
+                        df = loader.execute_sql(fallback_sql)
+                else:
+                    raise
         else:
-            # Pandas Executor (para arquivos CSV/XLS)
+            # File source (CSV / XLS)
             loader = DataLoader()
             dataframes = loader.load_data()
-            pandas_exec = PandasExecutor()
-            df = pandas_exec.execute(dataframes, query_model)
+            if not dataframes:
+                raise ValueError("Nenhum arquivo CSV/XLS encontrado")
+            table_name = query_req.tables[0] if query_req.tables else ""
+            raw_df = (
+                dataframes[table_name]
+                if table_name in dataframes
+                else next(iter(dataframes.values()))
+            )
+            df = builder.build_pandas(
+                chart_type=chart_type,
+                df=raw_df,
+                x_col=x_col,
+                y_col=y_col,
+                agg_func=agg_func,
+                z_col=z_col,
+            )
 
-        # 3. Extrair dados para resposta
-        result_data = df.to_dict('records')
+        # ── Post-processing ──────────────────────────────────────────────────
+        # Pareto: add cumulative percentage column when result came from SQL
+        if chart_type == "pareto" and query_req.source_type == "database":
+            df = add_pareto_cumulative(df)
+
+        # ── Build response ───────────────────────────────────────────────────
+        result_data = df.to_dict("records")
         columns = list(df.columns)
         row_count = len(df)
 
-        # 4. Extrair metadados para recomendação
-        extract_metadata(df, columns)
-        
-        # 5. Recomendar gráfico
         chart_recommendation = _recommend_chart_enhanced(
-            df, 
-            columns, 
+            df,
+            columns,
             query_req.group_by,
-            query_req.aggregations
+            query_req.aggregations,
         )
 
         execution_time = (time.time() - start_time) * 1000
@@ -304,10 +376,10 @@ async def execute_query(query_req: QueryModelRequest):
             result=QueryExecutionResponse(
                 data=result_data,
                 columns=columns,
-                row_count=row_count
+                row_count=row_count,
             ),
             recommendation=chart_recommendation,
-            execution_time_ms=execution_time
+            execution_time_ms=execution_time,
         ).dict()
 
     except Exception as e:
@@ -553,6 +625,54 @@ async def get_table_data(table_name: str, limit: int = 100, offset: int = 0):
 
 # ============ Funções Auxiliares ============
 
+def _build_metadata_for_model(df: pd.DataFrame, columns: List[str]) -> dict:
+    """Extrai features numéricas do DataFrame para alimentar o modelo ML."""
+    import numpy as np
+
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    categorical_cols = [c for c in columns if c not in numeric_cols]
+
+    # Detectar colunas temporais por nome ou tipo
+    temporal_keywords = ["date", "time", "year", "month", "day", "hora", "data"]
+    temporal_cols = [
+        c for c in columns
+        if any(kw in c.lower() for kw in temporal_keywords)
+        or pd.api.types.is_datetime64_any_dtype(df[c])
+    ]
+
+    # Cardinalidade média das colunas categóricas
+    avg_cardinality = float(
+        np.mean([df[c].nunique() for c in categorical_cols]) if categorical_cols else 0
+    )
+
+    # Correlação máxima entre pares numéricos
+    corr_strength = 0.0
+    if len(numeric_cols) >= 2:
+        corr_matrix = df[numeric_cols].corr().abs()
+        np.fill_diagonal(corr_matrix.values, 0)
+        corr_strength = float(corr_matrix.max().max())
+
+    pct_nulls = float(df.isnull().mean().mean())
+
+    numeric_cardinality_mean = float(
+        np.mean([df[c].nunique() for c in numeric_cols]) if numeric_cols else 0
+    )
+
+    total = len(columns) or 1
+    return {
+        "num_cols": len(numeric_cols),
+        "cat_cols": len(categorical_cols),
+        "temporal_cols": len(temporal_cols),
+        "avg_cardinality": avg_cardinality,
+        "corr_strength": corr_strength,
+        "pct_nulls": pct_nulls,
+        "numeric_cardinality_mean": numeric_cardinality_mean,
+        "contains_geo": 0,
+        "hierarchical_cat": 0,
+        "numeric_ratio": len(numeric_cols) / total,
+    }
+
+
 def _recommend_chart_enhanced(
     df: pd.DataFrame,
     columns: List[str],
@@ -560,50 +680,46 @@ def _recommend_chart_enhanced(
     aggregations: List[AggregationRequest]
 ) -> ChartRecommendationResponse:
     """
-    Recomenda um gráfico baseado na estrutura dos dados
+    Recomenda um gráfico usando o modelo ML (com fallback para regras).
     """
-    
+
     # Determinar campos X e Y
     x_field = group_by[0] if group_by else columns[0]
-    
+
     if aggregations:
-        y_field = aggregations[0].field
+        y_field = aggregations[0].field if hasattr(aggregations[0], "field") else aggregations[0].get("field", columns[-1])
     elif len(columns) > 1:
         y_field = columns[1]
     else:
         y_field = columns[0]
-    
-    # Análise dos tipos de dados
-    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-    categorical_cols = [col for col in columns if col not in numeric_cols]
-    
-    # Lógica de recomendação
-    if len(df) > 50:
-        chart_type = "scatter"
-        title = f"{y_field} por {x_field} (Scatter)"
-        reason = "Muitos pontos de dados"
-    elif x_field in categorical_cols and y_field in numeric_cols:
-        chart_type = "bar"
-        title = f"{y_field} por {x_field}"
-        reason = "Uma dimensão categórica e uma numérica"
-    elif x_field in numeric_cols and y_field in numeric_cols:
-        chart_type = "line"
-        title = f"{y_field} por {x_field}"
-        reason = "Duas dimensões numéricas"
-    else:
-        chart_type = "column"
-        title = f"Visualização de {y_field}"
-        reason = "Recomendação padrão"
-    
+
+    # Construir metadata para o modelo
+    metadata = _build_metadata_for_model(df, columns)
+
+    # Chamar modelo ML (top-3 recomendações)
+    top3 = recommend_chart_top_k(metadata, k=3)
+    chart_type = top3[0]["chart_type"]
+    probability = top3[0]["probability"]
+
+    # Gerar razão baseada na fonte da recomendação
+    reason = f"Modelo ML (confiança {probability:.0%})" if probability < 1.0 else "Recomendação por regras"
+
+    alternatives = [
+        ChartAlternative(chart_type=r["chart_type"], probability=r["probability"])
+        for r in top3
+    ]
+
     return ChartRecommendationResponse(
         chart_type=chart_type,
-        title=title,
+        title=f"{y_field} por {x_field}",
         reason=reason,
         x_field=x_field,
         y_field=y_field,
+        alternatives=alternatives,
         configuration={
             "responsive": True,
             "animation": True,
             "theme": "light"
         }
     )
+

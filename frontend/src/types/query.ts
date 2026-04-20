@@ -22,9 +22,14 @@ export interface QueryModel {
   source_type: SourceType;
   tables: string[];
   base_table: string;
-  group_by: string[]; // Campos para agrupar
-  aggregations: Aggregation[]; // Agregações a aplicar
+  group_by: string[];        // Campos para agrupar (eixo X / dimensão categórica)
+  aggregations: Aggregation[]; // Agregações a aplicar (eixo Y / métrica)
   filters?: Filter[];
+  /** Tipo de gráfico — determina a forma do SQL/Pandas gerado no backend.
+   *  Se omitido, o backend usa "bar" como padrão e o modelo ML recomenda o ideal. */
+  chart_type?: string;
+  /** Terceira coluna para tipos bidimensionais (heatmap, pivottable). */
+  z_column?: string;
 }
 
 export interface QueryExecutionResult {
@@ -33,12 +38,18 @@ export interface QueryExecutionResult {
   row_count: number;
 }
 
+export interface ChartAlternative {
+  chart_type: string;
+  probability: number;
+}
+
 export interface ChartRecommendation {
-  chart_type: 'bar' | 'line' | 'scatter' | 'pie' | 'area' | 'histogram';
+  chart_type: string;   // string livre — normalizado pelo frontend via normalizeChartType()
   title: string;
   reason: string;
   x_field: string;
   y_field: string;
+  alternatives?: ChartAlternative[];
   configuration?: Record<string, string | number | boolean>;
 }
 

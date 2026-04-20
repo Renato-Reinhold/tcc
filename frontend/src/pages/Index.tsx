@@ -8,7 +8,9 @@ import { DatabaseConnection } from "@/components/DatabaseConnection";
 import { DatabaseDiagram } from "@/components/DatabaseDiagram";
 import { TableDetail } from "@/components/TableDetail";
 import { queryService } from "@/services/queryService";
+import type { QueryModel } from "@/types/query";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "@/hooks/use-toast";
 
 export interface DataColumn {
   name: string;
@@ -41,6 +43,44 @@ export interface ProcessedData {
   };
 }
 
+/**
+ * Infer a DataColumn type from actual data values (used for DB columns
+ * which come back from the API without explicit type info).
+ */
+function detectColType(data: Record<string, unknown>[], colName: string): 'text' | 'number' | 'date' {
+  const sample = data.slice(0, 20).map((r) => r[colName]).filter((v) => v != null);
+  if (sample.length === 0) return 'text';
+  if (sample.every((v) => typeof v === 'number')) return 'number';
+  if (
+    sample.every(
+      (v) => typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))
+    )
+  )
+    return 'number';
+  if (
+    sample.some(
+      (v) =>
+        typeof v === 'string' &&
+        /^\d{4}-\d{2}-\d{2}/.test(v)
+    )
+  )
+    return 'date';
+  return 'text';
+}
+
+/** Find which metadata table owns at least one of the requested columns. */
+function findOwnerTable(
+  tables: Array<{ name: string; columns: Array<{ name: string; type: string } | string> }> | undefined,
+  columns: string[]
+): string | undefined {
+  if (!tables) return undefined;
+  return tables.find((t) =>
+    columns.some((col) =>
+      t.columns.some((c) => (typeof c === 'string' ? c === col : c.name === col))
+    )
+  )?.name;
+}
+
 const getTableData = (data: ProcessedData, tableName: string, selectedColumns: string[]): ProcessedData => {
   if (!data) {
     return data;
@@ -59,6 +99,7 @@ const Index = () => {
   const [processedData, setProcessedData] = useState<ProcessedData | null>(null);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>('');
+  const [recommendedChartType, setRecommendedChartType] = useState<string | undefined>(undefined);
 
   const handleSelectFileUpload = () => {
     setCurrentStep('upload');
@@ -93,16 +134,18 @@ const Index = () => {
           response.columns.map((col: string) => row[col])
         ) : [];
         
+        // Detect proper column types from actual data values
         const formattedColumns = response.columns.map((colName: string) => ({
           name: colName,
-          type: 'text' as const,
-          data: []
+          type: detectColType(response.data || [], colName),
+          data: [] as any[],
         }));
 
         updatedData = {
           ...processedData,
           columns: formattedColumns,
           rows: rows,
+          tableName: tableName,
           selectedColumns: columns,
           source: 'database'
         };
@@ -139,8 +182,78 @@ const Index = () => {
     }
   };
 
-  const handleGenerateChart = (columns: string[]) => {
+  const handleGenerateChart = async (columns: string[], chartType?: string) => {
+    if (columns.length === 0) return;
+
+    if (processedData?.source === 'database') {
+      // ── Database source: use /viz/execute so ChartQueryBuilder shapes the data ──
+      const ownerTable =
+        selectedTable ||
+        findOwnerTable(processedData.metadata?.tables, columns);
+
+      if (!ownerTable) {
+        toast({
+          title: 'Tabela não encontrada',
+          description: 'Não foi possível identificar a tabela dos dados selecionados.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      try {
+        const requestedType = chartType || 'bar';
+
+        // Pick xCol = first categorical column, yCol = first numeric column.
+        // If no numeric column is known, pass empty string → backend uses COUNT(*).
+        const getColType = (c: string) =>
+          processedData.columns.find((dc) => dc.name === c)?.type;
+        const xCol = columns.find((c) => getColType(c) !== 'number') ?? columns[0];
+        const yCol = columns.find((c) => getColType(c) === 'number') ?? '';
+
+        const queryModel: QueryModel = {
+          source_type: 'database',
+          tables: [ownerTable],
+          base_table: ownerTable,
+          group_by: [xCol],
+          aggregations: [{ field: yCol, func: yCol ? 'sum' : 'count', alias: yCol || 'count' }],
+          chart_type: requestedType,
+        };
+
+        const response = await queryService.executeQuery(queryModel);
+        const responseColumns = response.result.columns;
+
+        const newColumns = responseColumns.map((colName) => ({
+          name: colName,
+          type: detectColType(response.result.data, colName),
+          data: [] as any[],
+        }));
+
+        // Store rows as objects — ChartGenerator.chartData handles this with isObjectRow
+        setProcessedData({
+          ...processedData,
+          columns: newColumns,
+          rows: response.result.data as any[][],
+          tableName: ownerTable,
+          selectedColumns: responseColumns,
+          source: 'database',
+        });
+        setSelectedTable(ownerTable);
+        setSelectedColumns(responseColumns);
+        setRecommendedChartType(response.recommendation.chart_type);
+        setCurrentStep('chart');
+      } catch {
+        toast({
+          title: 'Erro ao gerar gráfico',
+          description: 'Não foi possível buscar os dados do banco de dados.',
+          variant: 'destructive',
+        });
+      }
+      return;
+    }
+
+    // ── File source: data already in processedData.rows ──────────────────────
     setSelectedColumns(columns);
+    if (chartType) setRecommendedChartType(chartType);
     setCurrentStep('chart');
   };
 
@@ -280,6 +393,7 @@ const Index = () => {
               <ChartGenerator 
                 data={processedData}
                 selectedColumns={selectedColumns}
+                recommendedType={recommendedChartType}
                 onBackToData={handleBackToData}
                 onBackToUpload={handleBackToUpload}
               />
