@@ -10,9 +10,12 @@ class Settings:
     DB_NAME = os.getenv("DB_NAME", "tcc_db")
     DB_USER = os.getenv("DB_USER", "postgres")
     DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
-    
-    # Build DB_URL from components
-    DB_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+    # Build DB_URL: prefer DATABASE_URL (Railway injects this automatically)
+    DB_URL = os.getenv(
+        "DATABASE_URL",
+        f"postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}?user={DB_USER}&password={DB_PASSWORD}",
+    )
     
     MODEL_DIR = os.getenv("MODEL_DIR", "data/model/")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

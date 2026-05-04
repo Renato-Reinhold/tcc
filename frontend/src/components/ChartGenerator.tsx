@@ -76,6 +76,24 @@ export const ChartGenerator = ({
     return () => clearTimeout(timer);
   });
 
+  // The aggregation column is always named 'valor' (or the last column as fallback)
+  const valueCol = useMemo(() => {
+    const exact = selectedColumns.find((c) => c === 'valor' || c.endsWith('.valor'));
+    if (exact) return exact;
+    // Detect by column type — last numeric column
+    const numericCols = selectedColumns.filter((c) => {
+      const col = data.columns.find((dc) => dc.name === c);
+      return col?.type === 'number';
+    });
+    if (numericCols.length > 0) return numericCols[numericCols.length - 1];
+    return selectedColumns[selectedColumns.length - 1] ?? '';
+  }, [selectedColumns, data.columns]);
+
+  const groupByCols = useMemo(
+    () => selectedColumns.filter((c) => c !== valueCol),
+    [selectedColumns, valueCol],
+  );
+
   // Dados mapeados para array de objetos
   const chartData = useMemo((): Array<Record<string, DataValue>> => {
     if (!data.rows || data.rows.length === 0) return [];
@@ -105,12 +123,22 @@ export const ChartGenerator = ({
           item[colName] = rawValue as DataValue;
         }
       });
+
+      // When multiple GROUP BY columns exist, build a composite label for the X axis
+      if (groupByCols.length > 1) {
+        item['_x_label_'] = groupByCols
+          .map((c) => String(item[c] ?? ''))
+          .join(' / ');
+      }
+
       return item;
     });
-  }, [data, selectedColumns]);
+  }, [data, selectedColumns, groupByCols]);
 
-  const xField = selectedColumns[0] ?? '';
-  const yField = selectedColumns[1] ?? selectedColumns[0] ?? '';
+  // xField: composite label when >1 group-by col, otherwise first group-by col
+  const xField = groupByCols.length > 1 ? '_x_label_' : (groupByCols[0] ?? selectedColumns[0] ?? '');
+  // yField: always the aggregation/value column
+  const yField = valueCol;
 
   const handleExport = async (format: 'png' | 'svg' | 'pdf') => {
     try {
@@ -283,24 +311,35 @@ export const ChartGenerator = ({
               {/* Tipo de gráfico */}
               <div className="space-y-3">
                 <Label className="text-sm font-medium">Tipo de Gráfico</Label>
-                <Select value={chartType} onValueChange={(v) => setChartType(v as ChartType)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {ALL_CHART_MODELS.map((model) => (
-                      <SelectItem key={model.type} value={model.type}>
-                        <div className="flex items-center gap-2">
-                          <span>{model.icon}</span>
-                          <div>
-                            <div className="font-medium">{model.label}</div>
-                            <div className="text-xs text-muted-foreground">{model.description}</div>
-                          </div>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-3 gap-2">
+                  {ALL_CHART_MODELS.map((model) => {
+                    const isSelected = chartType === model.type;
+                    const isRecommended = model.type === localRecommended;
+                    return (
+                      <button
+                        key={model.type}
+                        type="button"
+                        onClick={() => setChartType(model.type)}
+                        title={model.label}
+                        className={`relative flex flex-col items-center gap-1 rounded-lg border-2 px-1 py-2 text-center transition-all duration-150 hover:border-primary/60 hover:bg-primary/5 focus:outline-none ${
+                          isSelected
+                            ? 'border-primary bg-primary/10 shadow-sm scale-[1.05]'
+                            : 'border-border bg-card'
+                        }`}
+                      >
+                        {isRecommended && (
+                          <span className="absolute -top-1.5 -right-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
+                            <Zap className="h-2 w-2" />
+                          </span>
+                        )}
+                        <span className="text-xl leading-none">{model.icon}</span>
+                        <span className={`text-[10px] font-medium leading-tight ${isSelected ? 'text-primary' : 'text-foreground'}`}>
+                          {model.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
                 {chartType === localRecommended && (
                   <Badge variant="outline" className="w-fit bg-primary/10 text-primary border-primary/30">
                     <Zap className="h-3 w-3 mr-1" />

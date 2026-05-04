@@ -49,22 +49,22 @@ def _safe_ident(name: str) -> str:
 # ── Default per-chart row limits ─────────────────────────────────────────────
 
 _DEFAULT_LIMITS = {
-    "bar":        30,
-    "column":     30,
-    "line":       None,   # full time-series – no limit
+    "bar":        None,
+    "column":     None,
+    "line":       None,
     "area":       None,
-    "scatter":    500,
-    "pie":        8,
-    "histogram":  2000,
-    "heatmap":    500,
-    "treemap":    50,
-    "pareto":     20,
-    "kpi":        None,   # scalar – no limit needed
+    "scatter":    None,
+    "pie":        None,
+    "histogram":  None,
+    "heatmap":    None,
+    "treemap":    None,
+    "pareto":     None,
+    "kpi":        None,
     "indicador":  None,
-    "pivottable": 500,
-    "radar":      8,
-    "map":        200,
-    "table":      100,
+    "pivottable": None,
+    "radar":      None,
+    "map":        None,
+    "table":      None,
 }
 
 # ── Chart-type aliases (normalise incoming names) ────────────────────────────

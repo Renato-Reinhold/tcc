@@ -69,6 +69,34 @@ class DatabaseConnector(ABC):
             print(f"Erro ao obter colunas: {e}")
             return []
     
+    def get_foreign_keys(self, table_name: str) -> List[Dict]:
+        """Obter chaves estrangeiras de uma tabela"""
+        try:
+            inspector = inspect(self.engine)
+            return inspector.get_foreign_keys(table_name)
+        except Exception as e:
+            print(f"Erro ao obter chaves estrangeiras para {table_name}: {e}")
+            return []
+
+    def get_indexes(self, table_name: str) -> List[Dict]:
+        """Obter índices de uma tabela"""
+        try:
+            inspector = inspect(self.engine)
+            return inspector.get_indexes(table_name)
+        except Exception as e:
+            print(f"Erro ao obter índices para {table_name}: {e}")
+            return []
+
+    def get_primary_key_columns(self, table_name: str) -> List[str]:
+        """Obter colunas da chave primária de uma tabela"""
+        try:
+            inspector = inspect(self.engine)
+            pk = inspector.get_pk_constraint(table_name)
+            return pk.get('constrained_columns', [])
+        except Exception as e:
+            print(f"Erro ao obter chave primária para {table_name}: {e}")
+            return []
+
     def get_table_data(self, table_name: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Obter dados de uma tabela"""
         try:

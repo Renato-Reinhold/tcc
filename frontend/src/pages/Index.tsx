@@ -8,7 +8,7 @@ import { DatabaseConnection } from "@/components/DatabaseConnection";
 import { DatabaseDiagram } from "@/components/DatabaseDiagram";
 import { TableDetail } from "@/components/TableDetail";
 import { queryService } from "@/services/queryService";
-import type { QueryModel } from "@/types/query";
+import type { QueryModel, AggregationFunction, Filter } from "@/types/query";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 
@@ -39,6 +39,7 @@ export interface ProcessedData {
       source_column: string;
       target_table: string;
       target_column: string;
+      type?: 'fk' | 'index';
     }>;
   };
 }
@@ -68,17 +69,24 @@ function detectColType(data: Record<string, unknown>[], colName: string): 'text'
   return 'text';
 }
 
-/** Find which metadata table owns at least one of the requested columns. */
+/** Find which metadata table owns the most of the requested columns. */
 function findOwnerTable(
   tables: Array<{ name: string; columns: Array<{ name: string; type: string } | string> }> | undefined,
   columns: string[]
 ): string | undefined {
   if (!tables) return undefined;
-  return tables.find((t) =>
-    columns.some((col) =>
+  let bestTable: string | undefined;
+  let bestCount = 0;
+  for (const t of tables) {
+    const count = columns.filter((col) =>
       t.columns.some((c) => (typeof c === 'string' ? c === col : c.name === col))
-    )
-  )?.name;
+    ).length;
+    if (count > bestCount) {
+      bestCount = count;
+      bestTable = t.name;
+    }
+  }
+  return bestTable;
 }
 
 const getTableData = (data: ProcessedData, tableName: string, selectedColumns: string[]): ProcessedData => {
@@ -100,6 +108,7 @@ const Index = () => {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>('');
   const [recommendedChartType, setRecommendedChartType] = useState<string | undefined>(undefined);
+  const [diagramNodePositions, setDiagramNodePositions] = useState<Record<string, { x: number; y: number }>>({});
 
   const handleSelectFileUpload = () => {
     setCurrentStep('upload');
@@ -182,12 +191,25 @@ const Index = () => {
     }
   };
 
-  const handleGenerateChart = async (columns: string[], chartType?: string) => {
+  const handleGenerateChart = async (
+    columns: string[],
+    chartType?: string,
+    tableHint?: string,
+    queryOverride?: {
+      groupBy: string[];
+      aggField: string;
+      aggFunc: string;
+      filters: Array<{ field: string; op: string; value: string }>;
+      tables?: string[];
+      granularity?: string;
+    }
+  ) => {
     if (columns.length === 0) return;
 
     if (processedData?.source === 'database') {
       // ── Database source: use /viz/execute so ChartQueryBuilder shapes the data ──
       const ownerTable =
+        tableHint ||
         selectedTable ||
         findOwnerTable(processedData.metadata?.tables, columns);
 
@@ -200,22 +222,58 @@ const Index = () => {
         return;
       }
 
+      // When tableHint is provided the columns are already scoped to that table.
+      // Otherwise filter to only those columns that belong to ownerTable.
+      let effectiveColumns = columns;
+      if (!tableHint) {
+        const ownerMeta = processedData.metadata?.tables.find((t) => t.name === ownerTable);
+        const ownerColumnNames = new Set(
+          ownerMeta?.columns.map((c) => (typeof c === 'string' ? c : c.name)) ?? []
+        );
+        if (ownerColumnNames.size > 0) {
+          const filtered = columns.filter((c) => ownerColumnNames.has(c));
+          if (filtered.length > 0) effectiveColumns = filtered;
+        }
+      }
+
       try {
         const requestedType = chartType || 'bar';
 
-        // Pick xCol = first categorical column, yCol = first numeric column.
-        // If no numeric column is known, pass empty string → backend uses COUNT(*).
+        // Build group_by and aggregations from queryOverride (from the diagram builder)
+        // or auto-detect from column types.
         const getColType = (c: string) =>
           processedData.columns.find((dc) => dc.name === c)?.type;
-        const xCol = columns.find((c) => getColType(c) !== 'number') ?? columns[0];
-        const yCol = columns.find((c) => getColType(c) === 'number') ?? '';
+
+        const xCol = effectiveColumns.find((c) => getColType(c) !== 'number') ?? effectiveColumns[0];
+        const yCol = effectiveColumns.find((c) => getColType(c) === 'number') ?? '';
+
+        const qGroupBy: string[] =
+          queryOverride?.groupBy.length ? queryOverride.groupBy : [xCol];
+        const qAggField: string =
+          queryOverride === undefined ? yCol : queryOverride.aggField;
+        const qAggFunc: AggregationFunction =
+          (queryOverride?.aggFunc as AggregationFunction) ?? (yCol ? 'sum' : 'count');
+        const qFilters: Filter[] | undefined =
+          queryOverride?.filters
+            .filter((f) => f.field && f.value !== '')
+            .map((f) => ({
+              field: f.field,
+              operator: f.op as Filter['operator'],
+              value: f.value,
+            }));
+
+        const queryTables =
+          queryOverride?.tables && queryOverride.tables.length > 1
+            ? queryOverride.tables
+            : [ownerTable];
 
         const queryModel: QueryModel = {
           source_type: 'database',
-          tables: [ownerTable],
+          tables: queryTables,
           base_table: ownerTable,
-          group_by: [xCol],
-          aggregations: [{ field: yCol, func: yCol ? 'sum' : 'count', alias: yCol || 'count' }],
+          group_by: qGroupBy,
+          aggregations: [{ field: qAggField, func: qAggFunc, alias: qAggField || 'valor' }],
+          filters: qFilters,
           chart_type: requestedType,
         };
 
@@ -343,6 +401,8 @@ const Index = () => {
                 onViewTableData={handleViewTableData}
                 onGenerateChart={handleGenerateChart}
                 onBackToUpload={handleBackToSource}
+                nodePositions={diagramNodePositions}
+                onNodePositionsChange={setDiagramNodePositions}
               />
             </motion.div>
           )}
@@ -394,7 +454,7 @@ const Index = () => {
                 data={processedData}
                 selectedColumns={selectedColumns}
                 recommendedType={recommendedChartType}
-                onBackToData={handleBackToData}
+                onBackToData={handleBackToDiagram}
                 onBackToUpload={handleBackToUpload}
               />
             </motion.div>

@@ -209,11 +209,58 @@ async def get_connected_tables():
                 "row_count": record_count,
                 "record_count": record_count
             })
-        
-        print(f"[DEBUG] Retornando {len(table_metadata)} tabelas")
-        
+
+        # Collect primary keys for index relationship detection
+        primary_keys = {}
+        for tname in tables:
+            primary_keys[tname] = _active_connector.get_primary_key_columns(tname)
+
+        # Build relationships (FK + index-based)
+        relationships = []
+        fk_pairs = set()
+
+        for tname in tables:
+            try:
+                fks = _active_connector.get_foreign_keys(tname)
+                for fk in fks:
+                    if fk.get('constrained_columns') and fk.get('referred_columns'):
+                        relationships.append({
+                            'source_table': tname,
+                            'source_column': fk['constrained_columns'][0],
+                            'target_table': fk['referred_table'],
+                            'target_column': fk['referred_columns'][0],
+                            'type': 'fk'
+                        })
+                        fk_pairs.add((tname, fk['referred_table']))
+                        fk_pairs.add((fk['referred_table'], tname))
+            except Exception as e:
+                print(f"[WARN] FK para {tname}: {e}")
+
+        for tname in tables:
+            try:
+                indexes = _active_connector.get_indexes(tname)
+                for idx in indexes:
+                    for col in idx.get('column_names', []):
+                        for other in tables:
+                            if other == tname:
+                                continue
+                            if col in primary_keys.get(other, []) and (tname, other) not in fk_pairs:
+                                relationships.append({
+                                    'source_table': tname,
+                                    'source_column': col,
+                                    'target_table': other,
+                                    'target_column': col,
+                                    'type': 'index'
+                                })
+                                fk_pairs.add((tname, other))
+            except Exception as e:
+                print(f"[WARN] Indexes para {tname}: {e}")
+
+        print(f"[DEBUG] Retornando {len(table_metadata)} tabelas e {len(relationships)} relacionamentos")
+
         return {
-            "tables": table_metadata
+            "tables": table_metadata,
+            "relationships": relationships
         }
     except Exception as e:
         raise HTTPException(
@@ -254,6 +301,167 @@ async def get_connected_table_data(table_name: str, limit: int = 100, offset: in
 # ============ Endpoints de Execução ============
 
 
+def _qualify_filter_field(
+    clause: str,
+    connector: DatabaseConnector,
+    all_tables: List[str],
+    prefer_table: str,
+) -> str:
+    """
+    Given a SQL WHERE clause fragment like "field = 'value'" or "field > 5",
+    prefix the field name with its owning table if it is unqualified.
+    """
+    import re
+    # Match a leading identifier (no dot) followed by a space and SQL operator
+    m = re.match(r'^([A-Za-z_]\w*)(\s+(?:=|>|<|>=|<=|LIKE|IN)\b.*)', clause, re.IGNORECASE)
+    if not m:
+        return clause
+    field, rest = m.group(1), m.group(2)
+    qualified = _qualify_column(connector, all_tables, field, prefer_table)
+    return f"{qualified}{rest}"
+
+
+def _qualify_column(
+    connector: DatabaseConnector,
+    all_tables: List[str],
+    col_name: str,
+    prefer_table: str = "",
+) -> str:
+    """
+    Return 'table.col' for col_name by inspecting which tables in all_tables contain it.
+    If already qualified (contains '.') or empty, returns as-is.
+    When multiple tables own the column, prefer_table wins; otherwise first owner is used.
+    """
+    if not col_name or '.' in col_name:
+        return col_name
+    owners: List[str] = []
+    for table in all_tables:
+        try:
+            cols = [c["name"] for c in connector.get_table_columns(table)]
+            if col_name in cols:
+                owners.append(table)
+        except Exception:
+            pass
+    if not owners:
+        return col_name  # not found — return unqualified and let DB report the error
+    if prefer_table and prefer_table in owners:
+        return f"{prefer_table}.{col_name}"
+    return f"{owners[0]}.{col_name}"
+
+
+def _build_multi_group_sql(
+    builder: "ChartQueryBuilder",
+    chart_type: str,
+    base_table: str,
+    group_by_cols: List[str],
+    y_col: str,
+    agg_func: str,
+    z_col: Optional[str],
+    filters: List[str],
+    joins: str,
+) -> str:
+    """
+    Build a SQL query that supports multiple GROUP BY columns.
+
+    When there is exactly one group-by column, delegates to ChartQueryBuilder.build_sql
+    so chart-type-specific logic (ordering, limits) is preserved.
+    When there are multiple columns, generates a generic SELECT with all group-by cols
+    plus the aggregation, GROUP BY all cols, ORDER BY value DESC, LIMIT 30.
+    """
+    from app.data.chart_query_builder import _safe_ident, _agg_expr, _where
+
+    x_col = group_by_cols[0] if group_by_cols else ""
+
+    if len(group_by_cols) <= 1:
+        return builder.build_sql(
+            chart_type=chart_type,
+            base_table=base_table,
+            x_col=x_col,
+            y_col=y_col,
+            agg_func=agg_func,
+            z_col=z_col,
+            filters=filters,
+            joins=joins,
+        )
+
+    # Multi-column GROUP BY — build a generic query
+    safe_gb = [_safe_ident(c) for c in group_by_cols]
+    agg = _agg_expr(agg_func, y_col) if y_col else "COUNT(*)"
+    where = _where(filters)
+    joins_str = f" {joins}" if joins else ""
+    gb_clause = ", ".join(safe_gb)
+    select_cols = ", ".join(safe_gb)
+    return (
+        f"SELECT {select_cols}, {agg} AS valor "
+        f"FROM {_safe_ident(base_table)}{joins_str}{where} "
+        f"GROUP BY {gb_clause} "
+        f"ORDER BY valor DESC"
+    )
+
+
+def _bfs_path_to_target(
+    adj: dict,
+    start_nodes: set,
+    target: str,
+) -> Optional[List[tuple]]:
+    """
+    BFS from any already-joined node to `target` through the full FK graph.
+    Returns list of (from_table, to_table, from_col, to_col) steps, or None.
+    """
+    from collections import deque
+    visited = set(start_nodes)
+    queue = deque([(node, []) for node in start_nodes])
+    while queue:
+        current, path = queue.popleft()
+        for neighbor, from_col, to_col in adj.get(current, []):
+            if neighbor not in visited:
+                new_path = path + [(current, neighbor, from_col, to_col)]
+                if neighbor == target:
+                    return new_path
+                visited.add(neighbor)
+                queue.append((neighbor, new_path))
+    return None
+
+
+def _build_join_clauses(connector: DatabaseConnector, base_table: str, extra_tables: List[str]) -> str:
+    """
+    Transitive BFS over the COMPLETE FK graph (all DB tables) to build JOIN clauses
+    that connect every table in extra_tables to base_table.
+    Automatically includes intermediate bridge tables.
+    """
+    # Build full adjacency from ALL tables in the DB
+    try:
+        all_db_tables = connector.get_tables()
+    except Exception:
+        all_db_tables = [base_table] + extra_tables
+    adj: dict = {}
+    for table in all_db_tables:
+        for fk in (connector.get_foreign_keys(table) or []):
+            referred = fk.get("referred_table", "")
+            local_cols = fk.get("constrained_columns", [])
+            ref_cols = fk.get("referred_columns", [])
+            if referred and local_cols and ref_cols:
+                adj.setdefault(table, []).append((referred, local_cols[0], ref_cols[0]))
+                adj.setdefault(referred, []).append((table, ref_cols[0], local_cols[0]))
+    # BFS from base_table, expanding as we join new tables
+    joined: set = {base_table}
+    added_edges: set = set()
+    clauses: List[str] = []
+    for target in extra_tables:
+        if target in joined:
+            continue
+        path = _bfs_path_to_target(adj, joined, target)
+        if not path:
+            continue
+        for (from_t, to_t, from_col, to_col) in path:
+            edge_key = tuple(sorted([from_t, to_t]))
+            if edge_key not in added_edges:
+                added_edges.add(edge_key)
+                clauses.append(f"JOIN {to_t} ON {from_t}.{from_col} = {to_t}.{to_col}")
+            joined.add(to_t)
+    return " ".join(clauses)
+
+
 @router.post("/execute")
 async def execute_query(query_req: QueryModelRequest):
     """
@@ -280,7 +488,8 @@ async def execute_query(query_req: QueryModelRequest):
     try:
         # ── Parse request fields ─────────────────────────────────────────────
         chart_type = normalize_chart_type(query_req.chart_type or "bar")
-        x_col = query_req.group_by[0] if query_req.group_by else ""
+        group_by_cols = query_req.group_by  # full list — used for multi-col SQL
+        x_col = group_by_cols[0] if group_by_cols else ""
         z_col = query_req.z_column
 
         agg_func = "sum"
@@ -294,14 +503,53 @@ async def execute_query(query_req: QueryModelRequest):
 
         # ── Execute query ────────────────────────────────────────────────────
         if query_req.source_type == "database":
-            sql = builder.build_sql(
+            joins_str = ""
+            if _active_connector is not None:
+                # Step 1: qualify every column against ALL tables in the DB.
+                # This discovers which table each column belongs to, even when the
+                # frontend only sent the base table in query_req.tables.
+                try:
+                    all_db_tables = _active_connector.get_tables()
+                except Exception:
+                    all_db_tables = list(query_req.tables)
+
+                needed_tables: set = set(query_req.tables)  # start with explicitly requested
+
+                def _qualify_and_track(col: str) -> str:
+                    if not col or '.' in col:
+                        return col
+                    q = _qualify_column(_active_connector, all_db_tables, col, query_req.base_table)
+                    if '.' in q:
+                        needed_tables.add(q.split('.')[0])
+                    return q
+
+                group_by_cols = [_qualify_and_track(c) for c in group_by_cols]
+                x_col = group_by_cols[0] if group_by_cols else x_col
+                y_col = _qualify_and_track(y_col) if y_col else y_col
+                if z_col:
+                    z_col = _qualify_and_track(z_col)
+
+                # Step 2: build JOINs for all discovered tables (transitive BFS)
+                extra_tables = [t for t in needed_tables if t != query_req.base_table]
+                if extra_tables:
+                    joins_str = _build_join_clauses(_active_connector, query_req.base_table, extra_tables)
+                    filter_clauses = [
+                        _qualify_filter_field(
+                            clause, _active_connector, list(needed_tables), query_req.base_table
+                        )
+                        for clause in filter_clauses
+                    ]
+
+            sql = _build_multi_group_sql(
+                builder=builder,
                 chart_type=chart_type,
                 base_table=query_req.base_table,
-                x_col=x_col,
+                group_by_cols=group_by_cols,
                 y_col=y_col,
                 agg_func=agg_func,
                 z_col=z_col,
                 filters=filter_clauses,
+                joins=joins_str,
             )
             # Use active connector if available, otherwise fall back to DataLoader
             try:
@@ -314,15 +562,18 @@ async def execute_query(query_req: QueryModelRequest):
                 # If the aggregation column is not numeric (e.g. text), retry with COUNT(*)
                 err_str = str(sql_err).lower()
                 if y_col and ("function sum" in err_str or "function avg" in err_str or
-                              "operator does not exist" in err_str or "cannot be used" in err_str):
-                    fallback_sql = builder.build_sql(
+                              "operator does not exist" in err_str or "cannot be used" in err_str or
+                              "does not exist" in err_str):
+                    fallback_sql = _build_multi_group_sql(
+                        builder=builder,
                         chart_type=chart_type,
                         base_table=query_req.base_table,
-                        x_col=x_col,
+                        group_by_cols=group_by_cols,
                         y_col="",           # empty → COUNT(*)
                         agg_func="count",
                         z_col=z_col,
                         filters=filter_clauses,
+                        joins=joins_str,
                     )
                     if _active_connector is not None:
                         df = _active_connector.execute_query(fallback_sql)
@@ -540,7 +791,8 @@ async def test_custom_connection(conn: CustomDatabaseConnection):
                         'source_table': table_name,
                         'source_column': fk['constrained_columns'][0] if fk['constrained_columns'] else None,
                         'target_table': fk['referred_table'],
-                        'target_column': fk['referred_columns'][0] if fk['referred_columns'] else None
+                        'target_column': fk['referred_columns'][0] if fk['referred_columns'] else None,
+                        'type': 'fk'
                     })
             except Exception as e:
                 print(f"DEBUG: Could not get foreign keys for table {table_name}: {e}")

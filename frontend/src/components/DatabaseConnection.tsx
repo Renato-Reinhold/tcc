@@ -4,10 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Database, CheckCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import type { ProcessedData } from "@/pages/Index";
+
+const DB_ICONS: Record<string, string> = {
+  postgresql: "🐘",
+  mysql:      "🐬",
+  mssql:      "🪟",
+  sqlite:     "📦",
+  oracle:     "🔴",
+};
 
 interface DatabaseConnectionProps {
   onDataUploaded: (data: ProcessedData) => void;
@@ -143,7 +150,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
         source: 'database',
         metadata: {
           tables: tablesData.tables,
-          relationships: []
+          relationships: tablesData.relationships || []
         }
       };
 
@@ -213,23 +220,32 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-<div className="space-y-4">
-                <Label htmlFor="db-type" className="text-base font-medium">Tipo de Banco de Dados *</Label>
-                <Select value={selectedDbType} onValueChange={handleDatabaseTypeChange}>
-                  <SelectTrigger id="db-type">
-                    <SelectValue placeholder="Selecione o tipo de banco" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {supportedDatabases.map(db => (
-                      <SelectItem key={db.type} value={db.type}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{db.name}</span>
-                          <span className="text-xs text-muted-foreground">{db.description}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-4">
+                <Label className="text-base font-medium">Tipo de Banco de Dados *</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {supportedDatabases.map(db => {
+                    const isSelected = selectedDbType === db.type;
+                    return (
+                      <button
+                        key={db.type}
+                        type="button"
+                        onClick={() => handleDatabaseTypeChange(db.type)}
+                        className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 focus:outline-none ${
+                          isSelected
+                            ? 'border-primary bg-primary/10 shadow-md scale-[1.03]'
+                            : 'border-border bg-card'
+                        }`}
+                      >
+                        <span className="text-3xl leading-none">{DB_ICONS[db.type] ?? '🗄️'}</span>
+                        <span className={`text-sm font-semibold ${isSelected ? 'text-primary' : 'text-foreground'}`}>{db.name}</span>
+                        <span className="text-[10px] text-muted-foreground leading-tight">{db.description}</span>
+                        {isSelected && (
+                          <CheckCircle className="h-4 w-4 text-primary" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 {selectedDbType !== 'sqlite' && (
                 <div className="grid grid-cols-2 gap-4">
