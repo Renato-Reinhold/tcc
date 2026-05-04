@@ -26,6 +26,7 @@ COPY ./app ./app
 
 # Copiar script de inicialização e gerador de dados mock
 COPY create_mock_database.py .
+COPY create_mock_data_postgres.py .
 COPY create_mock_database_postgres.py .
 COPY docker-entrypoint.sh .
 
@@ -33,7 +34,7 @@ RUN chmod +x /app/docker-entrypoint.sh
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8000/ || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/ || exit 1
 
 # Porta padrão
 EXPOSE 8000

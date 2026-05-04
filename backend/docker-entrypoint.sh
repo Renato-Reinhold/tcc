@@ -1,5 +1,6 @@
 #!/bin/bash
 # Script para inicializar o banco de dados mockado antes do backend iniciar
+set -e
 
 cd /app
 
@@ -20,8 +21,18 @@ done
 
 # Criar banco de dados mockado
 echo "📊 Criando banco de dados mockado..."
-python create_mock_data_postgres.py
+SEED_SCRIPT="${SEED_SCRIPT:-create_mock_data_postgres.py}"
+if [ ! -f "$SEED_SCRIPT" ] && [ -f "create_mock_database_postgres.py" ]; then
+    SEED_SCRIPT="create_mock_database_postgres.py"
+fi
+
+if [ -f "$SEED_SCRIPT" ]; then
+    python "$SEED_SCRIPT"
+else
+    echo "⚠️ Nenhum script de seed encontrado; seguindo sem popular banco."
+fi
 
 # Iniciar o uvicorn
-echo "🚀 Iniciando FastAPI..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+APP_PORT="${PORT:-8000}"
+echo "🚀 Iniciando FastAPI na porta ${APP_PORT}..."
+exec uvicorn app.main:app --host 0.0.0.0 --port "$APP_PORT"
