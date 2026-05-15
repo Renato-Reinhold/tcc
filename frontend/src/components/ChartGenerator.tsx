@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { ChevronLeft, Download, Palette, Type, Settings, Zap, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,7 +65,7 @@ export const ChartGenerator = ({
 
   const [chartType, setChartType] = useState<ChartType>(localRecommended);
 
-  useState(() => {
+  useEffect(() => {
     const timer = setTimeout(() => {
       setIsGenerating(false);
       toast({
@@ -74,7 +74,7 @@ export const ChartGenerator = ({
       });
     }, 2000);
     return () => clearTimeout(timer);
-  });
+  }, []);
 
   // The aggregation column is always named 'valor' (or the last column as fallback)
   const valueCol = useMemo(() => {

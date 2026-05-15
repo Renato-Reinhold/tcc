@@ -99,11 +99,14 @@ class DatabaseConnector(ABC):
 
     def get_table_data(self, table_name: str, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Obter dados de uma tabela"""
+        import re
+        if not table_name or not re.match(r'^[\w.]+$', table_name):
+            raise ValueError(f"Nome de tabela inválido: {table_name!r}")
         try:
-            query = f"SELECT * FROM {table_name} LIMIT {limit} OFFSET {offset}"
+            query = f'SELECT * FROM "{table_name}" LIMIT {int(limit)} OFFSET {int(offset)}'
             df = pd.read_sql(text(query), self.engine)
             
-            count_query = f"SELECT COUNT(*) FROM {table_name}"
+            count_query = f'SELECT COUNT(*) FROM "{table_name}"'
             count_result = pd.read_sql(text(count_query), self.engine)
             total_count = int(count_result.iloc[0, 0])
             

@@ -244,8 +244,16 @@ const Index = () => {
         const getColType = (c: string) =>
           processedData.columns.find((dc) => dc.name === c)?.type;
 
-        const xCol = effectiveColumns.find((c) => getColType(c) !== 'number') ?? effectiveColumns[0];
-        const yCol = effectiveColumns.find((c) => getColType(c) === 'number') ?? '';
+        const nonNumCol = effectiveColumns.find((c) => getColType(c) !== 'number');
+        const numCols   = effectiveColumns.filter((c) => getColType(c) === 'number');
+
+        // xCol: prefer a categorical/text column; fall back to first numeric
+        const xCol = nonNumCol ?? effectiveColumns[0];
+        // yCol: if there is a non-numeric xCol pick the first numeric;
+        //       if all columns are numeric pick the SECOND one so xCol ≠ yCol
+        const yCol = nonNumCol != null
+          ? (numCols[0] ?? '')
+          : (numCols[1] ?? numCols[0] ?? '');
 
         const qGroupBy: string[] =
           queryOverride?.groupBy.length ? queryOverride.groupBy : [xCol];
@@ -328,6 +336,19 @@ const Index = () => {
     setProcessedData(null);
     setSelectedColumns([]);
     setSelectedTable('');
+  };
+
+  const handleNewChart = () => {
+    if (processedData?.source === 'database') {
+      setCurrentStep('diagram');
+      setSelectedColumns([]);
+      setSelectedTable('');
+    } else {
+      setCurrentStep('upload');
+      setProcessedData(null);
+      setSelectedColumns([]);
+      setSelectedTable('');
+    }
   };
 
   const handleBackToSource = () => {
@@ -455,7 +476,7 @@ const Index = () => {
                 selectedColumns={selectedColumns}
                 recommendedType={recommendedChartType}
                 onBackToData={handleBackToDiagram}
-                onBackToUpload={handleBackToUpload}
+                onBackToUpload={handleNewChart}
               />
             </motion.div>
           )}

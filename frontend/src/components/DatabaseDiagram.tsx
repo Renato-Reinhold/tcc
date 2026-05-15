@@ -107,12 +107,13 @@ interface TableNodeData {
   recordCount: number;
   selectedColumns?: Set<string>;
   tableDisabled?: boolean;
+  noFkLink?: boolean;
   onViewData?: (tableName: string, columns: string[]) => void;
   onToggleColumn?: (tableName: string, columnName: string) => void;
 }
 
 const TableNode = ({ data }: { data: TableNodeData }) => {
-  const isDisabled = data.tableDisabled ?? false;
+  const noFkLink = data.noFkLink ?? false;
 
   const handleViewData = () => {
     if (data.onViewData) {
@@ -123,7 +124,7 @@ const TableNode = ({ data }: { data: TableNodeData }) => {
 
   const handleToggleColumn = (e: React.MouseEvent | React.KeyboardEvent, columnName: string) => {
     e.stopPropagation();
-    if (!isDisabled && data.onToggleColumn) {
+    if (data.onToggleColumn) {
       data.onToggleColumn(data.label, columnName);
     }
   };
@@ -132,16 +133,17 @@ const TableNode = ({ data }: { data: TableNodeData }) => {
 
   return (
     <div className={`bg-card border rounded-lg shadow-card min-w-[240px] transition-colors ${
-      isDisabled ? 'border-muted-foreground/20 opacity-75' : 'border-border hover:border-primary/50'
+      noFkLink ? 'border-yellow-500/40' : 'border-border hover:border-primary/50'
     }`}>
-      <div className={`px-3 py-2 rounded-t-lg flex items-center justify-between ${
-        isDisabled ? 'bg-muted-foreground/30 text-muted-foreground' : 'bg-primary text-primary-foreground'
-      }`}>
+      <div className="px-3 py-2 rounded-t-lg flex items-center justify-between bg-primary text-primary-foreground">
         <div className="flex items-center gap-2">
-          {isDisabled
-            ? <AlertCircle className="h-4 w-4" />
-            : <Table className="h-4 w-4" />}
+          <Table className="h-4 w-4" />
           <span className="font-semibold text-sm">{data.label}</span>
+          {noFkLink && (
+            <AlertCircle
+              className="h-3.5 w-3.5 text-yellow-300"
+            />
+          )}
         </div>
         {selectedCount > 0 && (
           <Badge variant="secondary" className="text-xs">
@@ -150,17 +152,22 @@ const TableNode = ({ data }: { data: TableNodeData }) => {
         )}
       </div>
       <div className="p-3">
+        {noFkLink && (
+          <div className="flex items-center gap-1.5 mb-2 px-1 py-1 rounded bg-yellow-500/10 border border-yellow-500/30">
+            <AlertCircle className="h-3 w-3 text-yellow-600 flex-shrink-0" />
+            <span className="text-[10px] text-yellow-700 dark:text-yellow-400 leading-tight">
+              Sem FK — pode haver impacto no desempenho
+            </span>
+          </div>
+        )}
         <div className="space-y-1.5 mb-3">
           {data.columns.map((column, index) => {
             const isSelected = data.selectedColumns?.has(column.name) || false;
             return (
               <button
                 key={index}
-                disabled={isDisabled}
-                title={isDisabled ? 'Sem ligação FK com as tabelas selecionadas' : undefined}
                 className={(() => {
                   const base = 'w-full text-left flex items-center gap-2 p-1.5 rounded transition-all duration-200 transform';
-                  if (isDisabled) return `${base} opacity-50 cursor-not-allowed border border-transparent`;
                   if (isSelected) return `${base} bg-primary/20 border-2 border-primary scale-105 shadow-sm`;
                   return `${base} hover:bg-muted/50 border border-transparent active:scale-95`;
                 })()
@@ -201,9 +208,7 @@ const TableNode = ({ data }: { data: TableNodeData }) => {
           })}
         </div>
         <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border">
-          {isDisabled
-            ? <span className="italic text-muted-foreground/60">Sem ligação FK disponível</span>
-            : <span>{data.recordCount} registros</span>}
+          <span>{data.recordCount} registros</span>
           <Button 
             size="sm" 
             variant="outline" 
@@ -331,10 +336,12 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
 
   // ── Tables reachable (via any FK path) from the currently selected tables ───
   // null → nothing selected yet → no restriction
+  // Used only for the warning indicator — tables are never blocked
   const reachableFromSelected = useMemo<Set<string> | null>(() => {
     if (allSelectedTables.length === 0) return null;
+    if (data.source === 'file') return null; // Files have no FK relationships
     return bfsReachable(fkAdj, allSelectedTables);
-  }, [fkAdj, allSelectedTables]);
+  }, [fkAdj, allSelectedTables, data.source]);
 
   // Stable key to detect selection changes
   const selectionsKey = useMemo(
@@ -445,7 +452,8 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
             })),
             recordCount: table.record_count || table.row_count || 0,
             selectedColumns: tableSelections[table.name] || new Set(),
-            tableDisabled: reachableFromSelected !== null && !reachableFromSelected.has(table.name),
+            tableDisabled: false,
+            noFkLink: reachableFromSelected !== null && !reachableFromSelected.has(table.name),
             onViewData: (tableName: string, columns: string[]) => {
               onViewTableData(tableName, columns);
             },
@@ -473,7 +481,8 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
             })),
             recordCount: table.record_count || 0,
             selectedColumns: tableSelections[table.name] || new Set(),
-            tableDisabled: reachableFromSelected !== null && !reachableFromSelected.has(table.name),
+            tableDisabled: false,
+            noFkLink: reachableFromSelected !== null && !reachableFromSelected.has(table.name),
             onViewData: (tableName: string, columns: string[]) => {
               onViewTableData(tableName, columns);
             },
@@ -579,13 +588,14 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
     setNodes(nds =>
       nds.map(node => {
         if (node.type === 'table' && typeof node.data?.label === 'string') {
-          const label = node.data.label as string;
+          const label = node.data.label;
           return {
             ...node,
             data: {
               ...node.data,
               selectedColumns: tableSelections[label] || new Set(),
-              tableDisabled: reachableFromSelected !== null && !reachableFromSelected.has(label),
+              tableDisabled: false,
+              noFkLink: reachableFromSelected !== null && !reachableFromSelected.has(label),
             }
           };
         }

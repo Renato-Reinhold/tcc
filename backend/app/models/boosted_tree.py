@@ -1,9 +1,9 @@
 import xgboost as xgb
 import joblib
 import numpy as np
+import pandas as pd
 import os
 from sklearn.preprocessing import LabelEncoder
-from sklearn.utils.class_weight import compute_sample_weight
 from app.config.settings import settings
 
 
@@ -12,19 +12,21 @@ class BoostedTreeModel:
     def __init__(self, params=None):
         # parâmetros padrão para classificação multi-classe
         default_params = {
-            "n_estimators": 300,
-            "learning_rate": 0.05,
-            "max_depth": 5,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "min_child_weight": 3,
-            "gamma": 0.1,
-            "reg_alpha": 0.1,
-            "reg_lambda": 1.0,
+            "n_estimators": 600,
+            "learning_rate": 0.03,
+            "max_depth": 6,
+            "subsample": 0.85,
+            "colsample_bytree": 0.85,
+            "colsample_bylevel": 0.85,
+            "min_child_weight": 2,
+            "gamma": 0.05,
+            "reg_alpha": 0.05,
+            "reg_lambda": 1.5,
             "objective": "multi:softprob",
             "eval_metric": "mlogloss",
-            "early_stopping_rounds": 20,
+            "early_stopping_rounds": 40,
             "random_state": 42,
+            "tree_method": "hist",
         }
 
         # junta params do usuário com padrão
@@ -44,9 +46,8 @@ class BoostedTreeModel:
         self.classes_ = self.label_encoder.classes_
         self.model.set_params(num_class=len(self.classes_))
 
-        # Peso de amostra para lidar com desbalanceamento
-        sample_weights = compute_sample_weight("balanced", y_enc)
-
+        # Com dataset equilibrado não usamos sample_weight para não
+        # distorcer classes que já estão bem representadas
         eval_set = None
         if X_val is not None and y_val is not None:
             y_val_enc = self.label_encoder.transform(y_val)
@@ -57,7 +58,6 @@ class BoostedTreeModel:
 
         self.model.fit(
             X, y_enc,
-            sample_weight=sample_weights,
             eval_set=eval_set,
             verbose=False,
         )

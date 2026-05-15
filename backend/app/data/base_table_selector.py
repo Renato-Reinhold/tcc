@@ -1,16 +1,19 @@
-def choose_best_base_table(tables, filters, indexes):
-    costs = {}
+from .cost_estimator import CostEstimator
 
-    for table in tables:
-        cost = 0
-        for f in filters:
-            if f.startswith(table):
-                col = f.split(".")[1]
-                if any(i.table == table and i.column == col for i in indexes):
-                    cost += 1
-                else:
-                    cost += 10
 
-        costs[table] = cost
+def choose_best_base_table(tables, filters, indexes, table_row_counts=None, join_distances=None):
+    estimator = CostEstimator()
+    join_distances = join_distances or {}
+
+    costs = {
+        table: estimator.estimate_table_cost(
+            table,
+            filters,
+            indexes,
+            table_row_counts=table_row_counts,
+            join_distance=join_distances.get(table, 0),
+        )
+        for table in tables
+    }
 
     return min(costs, key=costs.get)

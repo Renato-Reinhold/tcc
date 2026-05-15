@@ -222,7 +222,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 <Label className="text-base font-medium">Tipo de Banco de Dados *</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="flex flex-col gap-2">
                   {supportedDatabases.map(db => {
                     const isSelected = selectedDbType === db.type;
                     return (
@@ -230,17 +230,19 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                         key={db.type}
                         type="button"
                         onClick={() => handleDatabaseTypeChange(db.type)}
-                        className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 focus:outline-none ${
+                        className={`flex items-center gap-4 rounded-lg border-2 px-4 py-3 text-left transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 focus:outline-none ${
                           isSelected
-                            ? 'border-primary bg-primary/10 shadow-md scale-[1.03]'
+                            ? 'border-primary bg-primary/10 shadow-sm'
                             : 'border-border bg-card'
                         }`}
                       >
-                        <span className="text-3xl leading-none">{DB_ICONS[db.type] ?? '🗄️'}</span>
-                        <span className={`text-sm font-semibold ${isSelected ? 'text-primary' : 'text-foreground'}`}>{db.name}</span>
-                        <span className="text-[10px] text-muted-foreground leading-tight">{db.description}</span>
+                        <span className="text-2xl leading-none">{DB_ICONS[db.type] ?? '🗄️'}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className={`block text-sm font-semibold ${isSelected ? 'text-primary' : 'text-foreground'}`}>{db.name}</span>
+                          <span className="block text-xs text-muted-foreground">{db.description}</span>
+                        </div>
                         {isSelected && (
-                          <CheckCircle className="h-4 w-4 text-primary" />
+                          <CheckCircle className="h-4 w-4 text-primary flex-shrink-0" />
                         )}
                       </button>
                     );
