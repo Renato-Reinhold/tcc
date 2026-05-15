@@ -764,8 +764,13 @@ async def test_custom_connection(conn: CustomDatabaseConnection):
             try:
                 with engine.connect() as connection:
                     from sqlalchemy import text
-                    result = connection.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
-                    row_count = result.scalar() or 0
+                    import re as _re
+                    safe_tname = table_name if _re.match(r'^[\w.]+$', table_name) else None
+                    if safe_tname:
+                        result = connection.execute(text(f'SELECT COUNT(*) FROM "{safe_tname}"'))
+                        row_count = result.scalar() or 0
+                    else:
+                        row_count = 0
             except Exception as e:
                 print(f"DEBUG: Could not count rows for table {table_name}: {e}")
                 row_count = 0
@@ -804,7 +809,7 @@ async def test_custom_connection(conn: CustomDatabaseConnection):
         }
     
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erro na conexão: {str(e)}")
+        raise HTTPException(status_code=400, detail="Erro na conexão com o banco de dados")
 
 
 @router.get("/tables/{table_name}/data")
@@ -812,6 +817,9 @@ async def get_table_data(table_name: str, limit: int = 100, offset: int = 0):
     """
     Retorna dados de uma tabela específica do banco de dados
     """
+    import re
+    if not table_name or not re.match(r'^[\w.]+$', table_name):
+        raise HTTPException(status_code=400, detail="Nome de tabela inválido")
     try:
         from sqlalchemy import text, create_engine, inspect
         from app.config.settings import settings
@@ -836,8 +844,8 @@ async def get_table_data(table_name: str, limit: int = 100, offset: int = 0):
                 )
             
             # Buscar dados da tabela
-            query = f"SELECT * FROM {table_name} LIMIT {limit} OFFSET {offset}"
-            print(f"[DEBUG] Executando query: {query}")
+            query = f'SELECT * FROM "{table_name}" LIMIT {int(limit)} OFFSET {int(offset)}'
+            print(f"[DEBUG] Executando query")
             
             result = connection.execute(text(query))
             rows = result.fetchall()
@@ -846,7 +854,7 @@ async def get_table_data(table_name: str, limit: int = 100, offset: int = 0):
             print(f"[DEBUG] Encontrados {len(rows)} linhas e {len(columns)} colunas")
             
             # Contar total de registros
-            count_query = f"SELECT COUNT(*) FROM {table_name}"
+            count_query = f'SELECT COUNT(*) FROM "{table_name}"'
             count_result = connection.execute(text(count_query))
             total_count = count_result.scalar() or 0
         

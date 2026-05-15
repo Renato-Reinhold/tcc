@@ -5,10 +5,13 @@ from app.routes import viz
 app = FastAPI(title="TCC Viz API")
 
 # ========== CORS Configuration ==========
+from app.config.settings import settings
+
+_origins = settings.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (can be restricted in production)
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

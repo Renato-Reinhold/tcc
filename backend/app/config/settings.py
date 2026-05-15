@@ -20,5 +20,15 @@ class Settings:
     MODEL_DIR = os.getenv("MODEL_DIR", "data/model/")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+    # CORS: comma-separated list of allowed origins, e.g. "https://frontend.up.railway.app"
+    # Defaults to "*" for local development
+    CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
+
+    @property
+    def CORS_ORIGINS(self) -> list[str]:
+        if self.CORS_ORIGINS_RAW == "*":
+            return ["*"]
+        return [o.strip() for o in self.CORS_ORIGINS_RAW.split(",") if o.strip()]
+
 
 settings = Settings()
