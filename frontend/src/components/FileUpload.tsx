@@ -7,6 +7,7 @@ import { toast } from "@/hooks/use-toast";
 import type { ProcessedData } from "@/pages/Index";
 import heroImage from "@/assets/hero-charts.jpg";
 import * as XLSX from 'xlsx';
+import { inferTypesFromArrayRows, inferTypesFromObjectRows } from "@/lib/inferColumnType";
 
 interface FileUploadProps {
   onDataUploaded: (data: ProcessedData) => void;
@@ -31,14 +32,24 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       throw new Error('Arquivo CSV vazio ou inválido');
     }
 
-    const headers = lines[0].split(',').map(h => h.trim());
-    const rows = lines.slice(1).map(line => line.split(',').map(cell => cell.trim()));
+    // Auto-detect delimiter: count occurrences in the header line
+    const firstLine = lines[0];
+    const counts = {
+      ',': (firstLine.match(/,/g) || []).length,
+      ';': (firstLine.match(/;/g) || []).length,
+      '\t': (firstLine.match(/\t/g) || []).length,
+    };
+    const delimiter = (Object.entries(counts) as [string, number][])
+      .sort((a, b) => b[1] - a[1])[0][0];
 
-    const columns = headers.map(header => ({
-      name: header,
-      type: 'text' as const,
-      data: []
-    }));
+    const splitLine = (line: string) =>
+      line.split(delimiter).map(cell => cell.trim().replace(/^"|"$/g, ''));
+
+    const headers = splitLine(lines[0]);
+    const rows = lines.slice(1).map(splitLine);
+
+    const baseColumns = headers.map(header => ({ name: header, type: 'text' as const, data: [] as never[] }));
+    const columns = inferTypesFromArrayRows(baseColumns, rows);
 
     return {
       columns,
@@ -68,13 +79,10 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
     const firstRow = data[0];
     const headers = Object.keys(firstRow);
 
-    const columns = headers.map(header => ({
-      name: header,
-      type: 'text' as const,
-      data: []
-    }));
+    const baseColumns = headers.map(header => ({ name: header, type: 'text' as const, data: [] as never[] }));
+    const columns = inferTypesFromObjectRows(baseColumns, data as Record<string, unknown>[]);
 
-    const rows = data.map(obj => headers.map(header => obj[header]));
+    const rows = data.map((obj: Record<string, unknown>) => headers.map(header => obj[header]));
 
     return {
       columns,
@@ -108,19 +116,15 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
         throw new Error('Planilha vazia');
       }
 
-      const firstRow = data[0];
+      const firstRow = data[0] as Record<string, unknown>;
       const headers = Object.keys(firstRow);
 
-      const columns = headers.map(header => ({
-        name: header,
-        type: 'text' as const,
-        data: []
-      }));
-
-      const rows = data.map(obj => headers.map(header => {
+      const baseColumns = headers.map(header => ({ name: header, type: 'text' as const, data: [] as never[] }));
+      const rows = (data as Record<string, unknown>[]).map(obj => headers.map(header => {
         const value = obj[header];
         return value !== null && value !== undefined ? String(value) : '';
       }));
+      const columns = inferTypesFromArrayRows(baseColumns, rows);
 
       return {
         columns,
@@ -147,19 +151,15 @@ export const FileUpload = ({ onDataUploaded, onBackToSource }: FileUploadProps) 
       const data = XLSX.utils.sheet_to_json(worksheet);
 
       if (data.length > 0) {
-        const firstRow = data[0];
+        const firstRow = data[0] as Record<string, unknown>;
         const headers = Object.keys(firstRow);
 
-        const columns = headers.map(header => ({
-          name: header,
-          type: 'text' as const,
-          data: []
-        }));
-
-        const rows = data.map(obj => headers.map(header => {
+        const baseColumns = headers.map(header => ({ name: header, type: 'text' as const, data: [] as never[] }));
+        const rows = (data as Record<string, unknown>[]).map(obj => headers.map(header => {
           const value = obj[header];
           return value !== null && value !== undefined ? String(value) : '';
         }));
+        const columns = inferTypesFromArrayRows(baseColumns, rows);
 
         tables.push({
           name: sheetName,

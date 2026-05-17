@@ -53,5 +53,6 @@ export const HistogramChartModel: ChartModel = {
   description: "Distribuição de frequência de valores numéricos",
   icon: "📐",
   minColumns: 1,
+  cardinality: { min: 10 },
   render,
 };

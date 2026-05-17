@@ -87,22 +87,7 @@ export const DataSourceSelection = ({ onSelectFileUpload, onSelectDatabase }: Da
         </motion.div>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.6 }}
-        className="text-center mt-12"
-      >
-        <p className="text-sm text-text-secondary">
-          Não tem dados para testar? 
-          <button 
-            onClick={onSelectFileUpload}
-            className="text-primary hover:underline ml-1 font-medium"
-          >
-            Use nossos dados de exemplo
-          </button>
-        </p>
-      </motion.div>
+
     </div>
   );
 };

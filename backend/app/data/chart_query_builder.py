@@ -1,34 +1,3 @@
-"""chart_query_builder.py
-
-Chart-type-aware SQL and Pandas query builder.
-
-Each chart type has specific data requirements that dictate:
-  - SELECT shape   (1-D, 2-D, raw values, scalar)
-  - ORDER BY       (time → ASC, metric → DESC, none)
-  - Row limits     (pie: 8, bar: 30, scatter: 500 …)
-  - Post-processing (Pareto: cumulative_pct column)
-
-Usage – SQL:
-    builder = ChartQueryBuilder()
-    sql = builder.build_sql(
-        chart_type="heatmap",
-        base_table="sales",
-        x_col="region",
-        y_col="product_category",
-        agg_func="sum",
-        z_col="revenue",
-    )
-
-Usage – Pandas (file / in-memory):
-    df_result = builder.build_pandas(
-        chart_type="pareto",
-        df=df,
-        x_col="category",
-        y_col="sales",
-        agg_func="sum",
-    )
-"""
-
 import re
 from typing import Optional, List
 
@@ -83,6 +52,14 @@ _CHART_ALIASES = {
 def normalize_chart_type(chart_type: str) -> str:
     t = (chart_type or "bar").lower().strip()
     return _CHART_ALIASES.get(t, t)
+
+
+# ── Safety cap for raw (non-aggregated) Pandas methods ───────────────────────
+# Aggregated methods (bar, line, pie, …) do not need a cap because GROUP BY
+# already bounds the row count to the column's cardinality.
+# Raw methods (scatter, histogram) use random sampling up to this limit so
+# the result is representative rather than positionally biased.
+_RAW_SAMPLE_ROWS = 50_000
 
 
 # ── SQL helpers ───────────────────────────────────────────────────────────────
@@ -248,8 +225,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY value DESC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_line(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -262,8 +237,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY {_safe_ident(x_col)} ASC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_area(self, **kw):
@@ -277,8 +250,6 @@ class ChartQueryBuilder:
             f"FROM {_safe_ident(base_table)} {joins}{where} "
             f"ORDER BY {_safe_ident(x_col)}"
         )
-        if limit:
-            sql += f" LIMIT {limit} OFFSET {offset}"
         return sql
 
     def _sql_pie(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -291,8 +262,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY value DESC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_histogram(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -307,8 +276,6 @@ class ChartQueryBuilder:
             f"SELECT {_safe_ident(target)} "
             f"FROM {_safe_ident(base_table)} {joins}{where}"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_heatmap(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -322,8 +289,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)}, {_safe_ident(y_col)} "
             f"ORDER BY {_safe_ident(x_col)}, {_safe_ident(y_col)}"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_treemap(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -336,8 +301,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY value DESC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_pareto(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -350,8 +313,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY value DESC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_kpi(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -374,8 +335,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)}, {_safe_ident(y_col)} "
             f"ORDER BY {_safe_ident(x_col)}, {_safe_ident(y_col)}"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_radar(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -388,8 +347,6 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY {_safe_ident(x_col)} ASC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_map(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
@@ -402,70 +359,66 @@ class ChartQueryBuilder:
             f"GROUP BY {_safe_ident(x_col)} "
             f"ORDER BY value DESC"
         )
-        if limit:
-            sql += f" LIMIT {limit}"
         return sql
 
     def _sql_table(self, base_table, x_col, y_col, agg_func, z_col, filters, joins, limit, offset):
         """Table: raw rows with pagination — no aggregation."""
         where = _where(filters)
         sql = f"SELECT * FROM {_safe_ident(base_table)} {joins}{where}"
-        if limit:
-            sql += f" LIMIT {limit} OFFSET {offset}"
         return sql
 
     # ── Pandas builders ───────────────────────────────────────────────────────
+    # Aggregated methods (bar, line, pie, heatmap, …) return the full GROUP BY
+    # result — cardinality of the group key naturally bounds row count.
+    # Raw-row methods (scatter, histogram) sample randomly up to _RAW_SAMPLE_ROWS
+    # to stay memory-safe without positional bias.
+
+    @staticmethod
+    def _safe_sample(df: pd.DataFrame, n: int = _RAW_SAMPLE_ROWS) -> pd.DataFrame:
+        """Return at most n rows using random sampling (avoids head-position bias)."""
+        if len(df) <= n:
+            return df.reset_index(drop=True)
+        return df.sample(n=n, random_state=0).reset_index(drop=True)
 
     def _pandas_bar(self, df, x_col, y_col, agg_func, z_col, limit, offset):
         agg_col = self._best_numeric(df, y_col)
         if x_col not in df.columns or not agg_col:
-            return df.head(limit or 30)
+            return df.copy()
         result = self._apply_agg(df, [x_col], agg_col, agg_func)
-        result = result.sort_values("value", ascending=False)
-        if limit:
-            result = result.head(limit)
-        return result.reset_index(drop=True)
+        return result.sort_values("value", ascending=False).reset_index(drop=True)
 
     def _pandas_line(self, df, x_col, y_col, agg_func, z_col, limit, offset):
         agg_col = self._best_numeric(df, y_col)
         if x_col not in df.columns or not agg_col:
             return df
         result = self._apply_agg(df, [x_col], agg_col, agg_func)
-        result = result.sort_values(x_col, ascending=True).reset_index(drop=True)
-        if limit:
-            result = result.head(limit)
-        return result
+        return result.sort_values(x_col, ascending=True).reset_index(drop=True)
 
     def _pandas_area(self, **kw):
         return self._pandas_line(**kw)
 
     def _pandas_scatter(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 500
         cols = [c for c in [x_col, y_col] if c in df.columns]
         if len(cols) < 2:
-            return df.head(limit)
-        return df[cols].dropna().head(limit).reset_index(drop=True)
+            return self._safe_sample(df)
+        return self._safe_sample(df[cols].dropna())
 
     def _pandas_pie(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 8
         agg_col = self._best_numeric(df, y_col)
         if x_col not in df.columns or not agg_col:
-            return df.head(limit)
+            return df.copy()
         result = self._apply_agg(df, [x_col], agg_col, agg_func)
-        return result.sort_values("value", ascending=False).head(limit).reset_index(drop=True)
+        return result.sort_values("value", ascending=False).reset_index(drop=True)
 
     def _pandas_histogram(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 2000
         agg_col = self._best_numeric(df, x_col) or self._best_numeric(df, y_col)
         if not agg_col:
-            return df.head(limit)
+            return self._safe_sample(df)
         col_name = x_col if x_col in df.columns else agg_col
-        return df[[agg_col]].rename(columns={agg_col: col_name}).dropna().head(limit).reset_index(drop=True)
+        sampled = self._safe_sample(df[[agg_col]].dropna())
+        return sampled.rename(columns={agg_col: col_name}).reset_index(drop=True)
 
     def _pandas_heatmap(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 500
-        # z_col is the metric; y_col is the second dimension.
-        # If no z_col, look for a numeric column that isn't one of the two dimensions.
         if z_col and z_col in df.columns and pd.api.types.is_numeric_dtype(df[z_col]):
             value_col = z_col
         else:
@@ -475,26 +428,24 @@ class ChartQueryBuilder:
             ]
             value_col = candidates[0] if candidates else None
         if x_col not in df.columns or y_col not in df.columns or not value_col:
-            return df.head(limit)
+            return df.copy()
         result = self._apply_agg(df, [x_col, y_col], value_col, agg_func)
-        return result.sort_values([x_col, y_col]).head(limit).reset_index(drop=True)
+        return result.sort_values([x_col, y_col]).reset_index(drop=True)
 
     def _pandas_treemap(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 50
         agg_col = self._best_numeric(df, y_col)
         if x_col not in df.columns or not agg_col:
-            return df.head(limit)
+            return df.copy()
         result = self._apply_agg(df, [x_col], agg_col, agg_func)
-        return result.sort_values("value", ascending=False).head(limit).reset_index(drop=True)
+        return result.sort_values("value", ascending=False).reset_index(drop=True)
 
     def _pandas_pareto(self, df, x_col, y_col, agg_func, z_col, limit, offset):
         """Like bar but adds cumulative_pct column for the Pareto line."""
-        limit = limit or 20
         agg_col = self._best_numeric(df, y_col)
         if x_col not in df.columns or not agg_col:
-            return df.head(limit)
+            return df.copy()
         result = self._apply_agg(df, [x_col], agg_col, agg_func)
-        result = result.sort_values("value", ascending=False).head(limit).reset_index(drop=True)
+        result = result.sort_values("value", ascending=False).reset_index(drop=True)
         total = result["value"].sum()
         result["cumulative_pct"] = (
             (result["value"].cumsum() / total * 100).round(2) if total > 0 else 0.0
@@ -518,7 +469,6 @@ class ChartQueryBuilder:
         return self._pandas_kpi(**kw)
 
     def _pandas_pivottable(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 500
         if z_col and z_col in df.columns and pd.api.types.is_numeric_dtype(df[z_col]):
             value_col = z_col
         else:
@@ -528,27 +478,25 @@ class ChartQueryBuilder:
             ]
             value_col = candidates[0] if candidates else None
         if x_col not in df.columns or y_col not in df.columns or not value_col:
-            return df.head(limit)
+            return df.copy()
         result = self._apply_agg(df, [x_col, y_col], value_col, agg_func)
-        return result.sort_values([x_col, y_col]).head(limit).reset_index(drop=True)
+        return result.sort_values([x_col, y_col]).reset_index(drop=True)
 
     def _pandas_radar(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 8
         agg_col = self._best_numeric(df, y_col)
         if x_col not in df.columns or not agg_col:
-            return df.head(limit)
+            return df.copy()
         result = self._apply_agg(df, [x_col], agg_col, agg_func)
-        return result.sort_values(x_col).head(limit).reset_index(drop=True)
+        return result.sort_values(x_col).reset_index(drop=True)
 
     def _pandas_map(self, df, x_col, y_col, agg_func, z_col, limit, offset):
         return self._pandas_bar(
             df=df, x_col=x_col, y_col=y_col, agg_func=agg_func,
-            z_col=z_col, limit=limit or 200, offset=offset,
+            z_col=z_col, limit=None, offset=offset,
         )
 
     def _pandas_table(self, df, x_col, y_col, agg_func, z_col, limit, offset):
-        limit = limit or 100
-        return df.iloc[offset: offset + limit].reset_index(drop=True)
+        return self._safe_sample(df)
 
 
 # ── Add Pareto cumulative_pct to a result DataFrame from SQL ─────────────────

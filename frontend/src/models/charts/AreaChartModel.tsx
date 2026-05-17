@@ -9,12 +9,13 @@ import {
   Legend,
 } from "recharts";
 import type { ChartModel, ChartRenderProps } from "@/types/chart";
+import { fmtNum } from "@/types/chart";
 
 function render({ data, xField, columns, colors }: ChartRenderProps) {
   const valueCols = columns.filter((c) => c !== xField);
   return (
     <ResponsiveContainer width="100%" height={400}>
-      <AreaChart data={data}>
+      <AreaChart data={data} margin={{ right: 8 }}>
         <defs>
           {valueCols.map((col, i) => (
             <linearGradient key={col} id={`grad-${i}`} x1="0" y1="0" x2="0" y2="1">
@@ -24,9 +25,9 @@ function render({ data, xField, columns, colors }: ChartRenderProps) {
           ))}
         </defs>
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey={xField} />
-        <YAxis />
-        <Tooltip />
+        <XAxis dataKey={xField} tick={{ fontSize: 12 }} />
+        <YAxis tickFormatter={fmtNum} />
+        <Tooltip formatter={(v: unknown) => [fmtNum(v)]} />
         <Legend />
         {valueCols.map((col, i) => (
           <Area
@@ -49,5 +50,6 @@ export const AreaChartModel: ChartModel = {
   description: "Volume acumulado ao longo do tempo",
   icon: "📉",
   minColumns: 2,
+  cardinality: { min: 3 },
   render,
 };

@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { motion } from "framer-motion";
 import type { ProcessedData } from "@/pages/Index";
 import { toast } from "@/hooks/use-toast";
+import { colTypeLabel, colTypeClass, colTypeDescription } from "@/lib/inferColumnType";
 
 interface DataTableProps {
   data: ProcessedData;
@@ -54,24 +55,6 @@ export const DataTable = ({ data, tableName, initialColumns = [], onGenerateChar
         return [...prev, columnName];
       }
     });
-  };
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'number': return '123';
-      case 'date': return '📅';
-      case 'text': return 'Aa';
-      default: return '?';
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'number': return 'text-chart-1';
-      case 'date': return 'text-chart-2';
-      case 'text': return 'text-chart-3';
-      default: return 'text-muted-foreground';
-    }
   };
 
   const canGenerateChart = selectedColumns.length >= 2;
@@ -182,19 +165,18 @@ export const DataTable = ({ data, tableName, initialColumns = [], onGenerateChar
                                 <span className="font-medium">{column.name}</span>
                                 <Badge 
                                   variant="outline" 
-                                  className={`text-xs ${getTypeColor(column.type)}`}
+                                  className={`text-xs ${colTypeClass(column.type)}`}
                                 >
-                                  {getTypeIcon(column.type)}
+                                  {colTypeLabel(column.type)}
                                 </Badge>
                               </div>
                             </th>
                           </TooltipTrigger>
                           <TooltipContent>
-                            <div className="text-sm">
+                              <div className="text-sm">
                               <div className="font-medium">{column.name}</div>
                               <div className="text-muted-foreground">
-                                Tipo: {column.type === 'number' ? 'Número' : 
-                                      column.type === 'date' ? 'Data' : 'Texto'}
+                                Tipo: {colTypeDescription(column.type)}
                               </div>
                             </div>
                           </TooltipContent>

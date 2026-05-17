@@ -93,5 +93,6 @@ export const PivotTableChartModel: ChartModel = {
   description: "Cruzamento e agregação por dimensões",
   icon: "🔄",
   minColumns: 2,
+  cardinality: { min: 2 },
   render,
 };

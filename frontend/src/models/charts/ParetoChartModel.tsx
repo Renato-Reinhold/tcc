@@ -10,9 +10,10 @@ import {
   Legend,
 } from "recharts";
 import type { ChartModel, ChartRenderProps } from "@/types/chart";
+import { fmtNum } from "@/types/chart";
 
 function render({ data, xField, yField, colors }: ChartRenderProps) {
-  // Ordena decrescente por valor
+  // Sort descending by value (Pareto principle)
   const sorted = [...data].sort(
     (a, b) => (Number(b[yField]) || 0) - (Number(a[yField]) || 0)
   );
@@ -27,12 +28,23 @@ function render({ data, xField, yField, colors }: ChartRenderProps) {
     };
   });
 
+  const rotateLabels = paretoData.length > 7;
+
   return (
-    <ResponsiveContainer width="100%" height={400}>
-      <ComposedChart data={paretoData}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey={xField} angle={-30} textAnchor="end" height={60} />
-        <YAxis yAxisId="bar" />
+    <ResponsiveContainer width="100%" height={420}>
+      <ComposedChart
+        data={paretoData}
+        margin={{ bottom: rotateLabels ? 40 : 10, right: 16 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <XAxis
+          dataKey={xField}
+          angle={rotateLabels ? -35 : 0}
+          textAnchor={rotateLabels ? 'end' : 'middle'}
+          height={rotateLabels ? 70 : 40}
+          tick={{ fontSize: 12 }}
+        />
+        <YAxis yAxisId="bar" tickFormatter={fmtNum} domain={[0, 'auto']} />
         <YAxis
           yAxisId="line"
           orientation="right"
@@ -40,8 +52,8 @@ function render({ data, xField, yField, colors }: ChartRenderProps) {
           tickFormatter={(v) => `${v}%`}
         />
         <Tooltip
-          formatter={(value, name) =>
-            name === "_cumPct" ? [`${value}%`, "Acumulado"] : [value, name]
+          formatter={(value: unknown, name: string) =>
+            name === "_cumPct" ? [`${value}%`, "Acumulado"] : [fmtNum(value), name]
           }
         />
         <Legend
@@ -49,7 +61,7 @@ function render({ data, xField, yField, colors }: ChartRenderProps) {
             value === "_cumPct" ? "% Acumulado" : value
           }
         />
-        <Bar yAxisId="bar" dataKey={yField} fill={colors[0]} barSize={40} />
+        <Bar yAxisId="bar" dataKey={yField} fill={colors[0]} radius={[4, 4, 0, 0]} />
         <Line
           yAxisId="line"
           type="monotone"
@@ -69,5 +81,6 @@ export const ParetoChartModel: ChartModel = {
   description: "Análise 80/20 — causa e frequência acumulada",
   icon: "📏",
   minColumns: 2,
+  cardinality: { min: 3, max: 25 },
   render,
 };

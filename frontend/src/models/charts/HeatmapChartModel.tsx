@@ -103,5 +103,6 @@ export const HeatmapChartModel: ChartModel = {
   description: "Distribuição de intensidade em grade bidimensional",
   icon: "🌡️",
   minColumns: 3,
+  cardinality: { min: 4, max: 200 },
   render,
 };

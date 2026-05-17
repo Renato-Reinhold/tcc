@@ -14,7 +14,7 @@ import { toast } from "@/hooks/use-toast";
 
 export interface DataColumn {
   name: string;
-  type: 'text' | 'number' | 'date';
+  type: 'text' | 'number' | 'date' | 'boolean' | 'geo';
   data: any[];
 }
 

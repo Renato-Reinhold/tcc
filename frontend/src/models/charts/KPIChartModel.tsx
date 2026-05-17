@@ -74,5 +74,6 @@ export const KPIChartModel: ChartModel = {
   description: "Indicador chave com variação e sparkline",
   icon: "📌",
   minColumns: 1,
+  cardinality: { min: 1, max: 1 },
   render,
 };

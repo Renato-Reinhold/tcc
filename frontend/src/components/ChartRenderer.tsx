@@ -13,6 +13,7 @@ interface ChartRendererProps {
   columns?: string[];
   colors?: string[];
   title?: string;
+  onDataPointClick?: (value: string | number) => void;
 }
 
 const DEFAULT_COLORS = [
@@ -31,6 +32,7 @@ export function ChartRenderer({
   columns,
   colors = DEFAULT_COLORS,
   title,
+  onDataPointClick,
 }: Readonly<ChartRendererProps>) {
   const normalizedType = useMemo(
     () => normalizeChartType(String(chartType)),
@@ -62,6 +64,7 @@ export function ChartRenderer({
         columns: resolvedColumns,
         colors,
         title,
+        onDataPointClick,
       })}
     </div>
   );

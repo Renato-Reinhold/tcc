@@ -14,7 +14,6 @@ import { IndicadorChartModel } from "./charts/IndicadorChartModel";
 import { ParetoChartModel } from "./charts/ParetoChartModel";
 import { PivotTableChartModel } from "./charts/PivotTableChartModel";
 import { KPIChartModel } from "./charts/KPIChartModel";
-import { TableChartModel } from "./charts/TableChartModel";
 import { RadarChartModel } from "./charts/RadarChartModel";
 
 /** Todos os modelos registrados */
@@ -33,7 +32,6 @@ export const CHART_REGISTRY: Record<ChartType, ChartModel> = {
   pareto:     ParetoChartModel,
   pivottable: PivotTableChartModel,
   kpi:        KPIChartModel,
-  table:      TableChartModel,
   radar:      RadarChartModel,
 };
 

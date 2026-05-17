@@ -16,7 +16,6 @@ export type ChartType =
   | "pareto"
   | "pivottable"
   | "kpi"
-  | "table"
   | "radar";
 
 // ─── Primitive value type for chart data cells ──────────────────────────────
@@ -28,6 +27,26 @@ export function strVal(v: DataValue): string {
   return String(v as string | number | boolean);
 }
 
+/**
+ * Format a number for chart axis / tooltip display.
+ * Uses pt-BR locale with compact notation for large values.
+ * Accepts `unknown` so it can be passed directly as a Recharts tickFormatter.
+ */
+export function fmtNum(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v ?? '');
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000)
+    return `${(n / 1_000_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}B`;
+  if (abs >= 1_000_000)
+    return `${(n / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}M`;
+  if (abs >= 10_000)
+    return `${(n / 1_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}K`;
+  if (!Number.isInteger(n))
+    return n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+  return n.toLocaleString('pt-BR');
+}
+
 // ─── Props passadas para cada modelo ao renderizar ────────────────────────────
 export interface ChartRenderProps {
   data: Array<Record<string, DataValue>>;
@@ -36,6 +55,8 @@ export interface ChartRenderProps {
   columns: string[];
   colors: string[];
   title?: string;
+  /** Drill-down: called with the X-axis value when the user clicks a data point */
+  onDataPointClick?: (value: string | number) => void;
 }
 
 // ─── Interface base de um modelo de gráfico ───────────────────────────────────
@@ -45,6 +66,13 @@ export interface ChartModel {
   description: string;
   icon: string;         // emoji visual
   minColumns: number;   // mínimo de colunas necessárias
+  /** Cardinality constraints for the X-axis (distinct category count after aggregation) */
+  cardinality?: {
+    /** Minimum distinct groups needed for this chart to be meaningful */
+    min?: number;
+    /** Maximum distinct groups before the chart becomes unreadable */
+    max?: number;
+  };
   render: (props: ChartRenderProps) => ReactNode;
 }
 
@@ -72,7 +100,6 @@ export function normalizeChartType(backendName: string): ChartType {
     pivottable: "pivottable",
     pivot: "pivottable",
     kpi: "kpi",
-    table: "table",
     radar: "radar",
   };
 

@@ -1,26 +1,3 @@
-"""
-Gerador do dataset sintético de recomendação de gráficos.
-Executa a partir da pasta backend/:
-    python generate_dataset.py
-
-Regras de negócio por tipo de gráfico
---------------------------------------
-Cada classe tem um perfil de features bem definido e separado
-das demais, evitando sobreposição que cause confusão no modelo.
-
-Classes (10 — removidas as ambíguas/duplicadas):
-  Bar        – cat + num, sem temporal,  baixa cardinalidade
-  Line       – temporal + num
-  Area       – temporal + num, múltiplos num
-  Scatter    – 2+ num sem cat, sem temporal
-  Pie        – 1 cat baixa cardinalidade + 1 num, numeric_ratio~0.5
-  Heatmap    – 2 cat + num, corr alta, geo possível
-  Histograma – 1 num, sem cat, sem temporal, alta card numérica
-  Table      – muitas cat + poucos num, alta cardinalidade
-  TreeMap    – 1 cat hierárquica + 1 num
-  KPI        – 1 num apenas, sem cat, sem temporal (inclui Indicador)
-"""
-
 import numpy as np
 import pandas as pd
 import os
@@ -33,7 +10,6 @@ random.seed(SEED)
 OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "synthetic_viz_dataset_12k.csv")
 N_TOTAL = 12_000
 
-# Proporção desejada (relativa) por classe
 CLASS_WEIGHTS = {
     "Bar":        3.0,
     "Line":       2.5,
@@ -45,6 +21,10 @@ CLASS_WEIGHTS = {
     "Table":      1.0,
     "TreeMap":    0.8,
     "KPI":        0.7,
+    "Map":        1.0,
+    "Radar":      1.0,
+    "Pareto":     1.0,
+    "PivotTable": 1.0,
 }
 
 total_w = sum(CLASS_WEIGHTS.values())
@@ -245,7 +225,7 @@ def make_treemap(n):
         pct_nulls       = clip(rand(0, 0.2) + noise(), 0, 1)
         num_card_mean   = clip(rng.integers(5, 50) + noise(5), 0, 120)
         contains_geo    = 0
-        hierarchical    = int(rng.random() < 0.80)   # TreeMap é tipicamente hierárquico
+        hierarchical    = int(rng.random() < 0.80)
         total           = num_cols + cat_cols
         numeric_ratio   = clip(num_cols / total + noise(0.03), 0, 1)
         rows.append([num_cols, cat_cols, temporal_cols, avg_cardinality,
@@ -273,6 +253,85 @@ def make_kpi(n):
     return rows
 
 
+def make_map(n):
+    rows = []
+    for _ in range(n):
+        num_cols        = rand_int(2, 4)
+        cat_cols        = rand_int(0, 1)
+        temporal_cols   = 0
+        avg_cardinality = clip(rng.integers(0, 10) + noise(2), 0, 20)
+        corr_strength   = clip(rand(0.1, 0.5) + noise(), 0, 1)
+        pct_nulls       = clip(rand(0, 0.2) + noise(), 0, 1)
+        num_card_mean   = clip(rng.integers(10, 200) + noise(15), 5, 400)
+        contains_geo    = 1
+        hierarchical    = int(rng.random() < 0.10)
+        total           = num_cols + cat_cols
+        numeric_ratio   = clip(num_cols / total + noise(0.03), 0, 1)
+        rows.append([num_cols, cat_cols, temporal_cols, avg_cardinality,
+                     corr_strength, pct_nulls, num_card_mean,
+                     contains_geo, hierarchical, numeric_ratio, "Map"])
+    return rows
+
+
+def make_radar(n):
+    rows = []
+    for _ in range(n):
+        num_cols        = rand_int(3, 8)
+        cat_cols        = 1
+        temporal_cols   = 0
+        avg_cardinality = clip(rng.integers(2, 10) + noise(1), 2, 15)
+        corr_strength   = clip(rand(0.2, 0.7) + noise(), 0, 1)
+        pct_nulls       = clip(rand(0, 0.15) + noise(), 0, 1)
+        num_card_mean   = clip(rng.integers(5, 80) + noise(8), 2, 200)
+        contains_geo    = 0
+        hierarchical    = 0
+        total           = num_cols + cat_cols
+        numeric_ratio   = clip(num_cols / total + noise(0.03), 0, 1)
+        rows.append([num_cols, cat_cols, temporal_cols, avg_cardinality,
+                     corr_strength, pct_nulls, num_card_mean,
+                     contains_geo, hierarchical, numeric_ratio, "Radar"])
+    return rows
+
+
+def make_pareto(n):
+    rows = []
+    for _ in range(n):
+        num_cols        = 1
+        cat_cols        = 1
+        temporal_cols   = 0
+        avg_cardinality = clip(rng.integers(5, 15) + noise(1), 4, 20)
+        corr_strength   = clip(rand(0.0, 0.2) + noise(), 0, 1)
+        pct_nulls       = clip(rand(0, 0.05) + noise(), 0, 1)
+        num_card_mean   = clip(rng.integers(5, 30) + noise(3), 3, 60)
+        contains_geo    = 0
+        hierarchical    = 0
+        numeric_ratio   = 0.5
+        rows.append([num_cols, cat_cols, temporal_cols, avg_cardinality,
+                     corr_strength, pct_nulls, num_card_mean,
+                     contains_geo, hierarchical, numeric_ratio, "Pareto"])
+    return rows
+
+
+def make_pivottable(n):
+    rows = []
+    for _ in range(n):
+        num_cols        = rand_int(1, 2)
+        cat_cols        = rand_int(2, 4)
+        temporal_cols   = rand_int(0, 1)
+        avg_cardinality = clip(rng.integers(4, 20) + noise(3), 3, 40)
+        corr_strength   = clip(rand(0.1, 0.5) + noise(), 0, 1)
+        pct_nulls       = clip(rand(0, 0.3) + noise(), 0, 1)
+        num_card_mean   = clip(rng.integers(5, 50) + noise(5), 0, 120)
+        contains_geo    = int(rng.random() < 0.05)
+        hierarchical    = int(rng.random() < 0.40)
+        total           = num_cols + cat_cols + temporal_cols
+        numeric_ratio   = clip(num_cols / total + noise(0.03) if total > 0 else 0, 0, 1)
+        rows.append([num_cols, cat_cols, temporal_cols, avg_cardinality,
+                     corr_strength, pct_nulls, num_card_mean,
+                     contains_geo, hierarchical, numeric_ratio, "PivotTable"])
+    return rows
+
+
 GENERATORS = {
     "Bar":        make_bar,
     "Line":       make_line,
@@ -284,6 +343,10 @@ GENERATORS = {
     "Table":      make_table,
     "TreeMap":    make_treemap,
     "KPI":        make_kpi,
+    "Map":        make_map,
+    "Radar":      make_radar,
+    "Pareto":     make_pareto,
+    "PivotTable": make_pivottable,
 }
 
 

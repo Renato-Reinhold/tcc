@@ -34,5 +34,6 @@ export const IndicadorChartModel: ChartModel = {
   description: "Exibe um único valor de destaque",
   icon: "🔢",
   minColumns: 1,
+  cardinality: { min: 1, max: 1 },
   render,
 };

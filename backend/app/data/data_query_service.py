@@ -1,10 +1,14 @@
 import pandas as pd
 from .aggregation_inferer import AggregationInferer
 from .base_table_selector import choose_best_base_table
+from .cost_estimator import CostEstimator
 from .sql_generator import SQLGenerator
 from .pandas_executor import PandasExecutor
 
 class DataQueryService:
+
+    def __init__(self):
+        self._cost_estimator = CostEstimator()
 
     def execute(
         self,
@@ -12,7 +16,8 @@ class DataQueryService:
         column_metadata,
         index_metadata,
         relationship_graph,
-        data_source
+        data_source,
+        table_row_counts=None,
     ):
         # 1. inferir agregações
         group_by, aggregations = AggregationInferer().infer(
@@ -35,7 +40,10 @@ class DataQueryService:
             sql = SQLGenerator().generate(
                 query,
                 relationship_graph,
-                base_table
+                base_table,
+                cost_estimator=self._cost_estimator,
+                index_metadata=index_metadata,
+                table_row_counts=table_row_counts,
             )
             return data_source.execute_sql(sql)
 

@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
 import type { ProcessedData } from "@/pages/Index";
+import { colTypeLabel, colTypeClass, colTypeDescription } from "@/lib/inferColumnType";
 
 interface TableDetailProps {
   data: ProcessedData;
@@ -46,13 +47,12 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
   const endIndex = startIndex + itemsPerPage;
   const currentRows = tableRows.slice(startIndex, endIndex);
   
-  let displayColumns = data.metadata && data.metadata.tables ? 
-    (tableRows.length > 0 ? Object.keys(tableRows[0]).map(name => ({ 
-      name, 
-      type: 'text',
-      data: [...new Set(tableRows.map(row => row[name]))]
-    })) : []) :
-    (data.columns || []);
+  let displayColumns = data.columns?.length
+    ? data.columns
+    : [] as typeof data.columns;
+  if (!displayColumns.length && tableRows.length > 0) {
+    displayColumns = Object.keys(tableRows[0]).map(name => ({ name, type: 'text' as const, data: [] as never[] }));
+  }
 
   const toggleColumn = (columnName: string) => {
     setSelectedColumns(prev => 
@@ -60,24 +60,6 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
         ? prev.filter(name => name !== columnName)
         : [...prev, columnName]
     );
-  };
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'number': return '123';
-      case 'date': return '📅';
-      case 'text': return 'Aa';
-      default: return '?';
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'number': return 'bg-chart-2/10 text-chart-2 border-chart-2/30';
-      case 'date': return 'bg-chart-3/10 text-chart-3 border-chart-3/30';
-      case 'text': return 'bg-chart-1/10 text-chart-1 border-chart-1/30';
-      default: return 'bg-muted/10 text-muted-foreground border-muted/30';
-    }
   };
 
   const canGenerateChart = selectedColumns.length >= 2;
@@ -157,8 +139,8 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="font-medium">{column.name}</span>
-                        <Badge variant="outline" className={`text-xs ${getTypeColor(column.type)}`}>
-                          {getTypeIcon(column.type)} {column.type}
+                        <Badge variant="outline" className={`text-xs ${colTypeClass(column.type)}`}>
+                          {colTypeLabel(column.type)} {colTypeDescription(column.type)}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
@@ -216,12 +198,12 @@ export const TableDetail = ({ data, tableName, onBackToDiagram, onGenerateChart 
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger>
-                                  <Badge variant="outline" className={`text-xs ${getTypeColor(column.type)}`}>
-                                    {getTypeIcon(column.type)}
+                                  <Badge variant="outline" className={`text-xs ${colTypeClass(column.type)}`}>
+                                    {colTypeLabel(column.type)}
                                   </Badge>
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                  <p>Tipo: {column.type}</p>
+                                  <p>Tipo: {colTypeDescription(column.type)}</p>
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>

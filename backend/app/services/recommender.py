@@ -72,14 +72,49 @@ def recommend_chart_top_k(metadata: dict, k: int = 3) -> list:
 
 def _rule_based_recommend(metadata: dict) -> str:
     """Fallback baseado em regras simples."""
-    x_type = metadata.get("x_type", "")
-    y_type = metadata.get("y_type", "")
+    num_cols        = int(metadata.get("num_cols", 0))
+    cat_cols        = int(metadata.get("cat_cols", 0))
+    temporal_cols   = int(metadata.get("temporal_cols", 0))
+    contains_geo    = int(metadata.get("contains_geo", 0))
+    hierarchical    = int(metadata.get("hierarchical_cat", 0))
+    avg_cardinality = float(metadata.get("avg_cardinality", 0))
+    corr_strength   = float(metadata.get("corr_strength", 0))
 
-    if x_type == "numeric" and y_type == "numeric":
-        return "Scatter"
-    if x_type == "categorical" and y_type == "numeric":
-        return "Bar"
-    if metadata.get("temporal_cols", 0) > 0:
+    # Geo → Mapa
+    if contains_geo:
+        return "Map"
+    # Temporal → Área (multi-série) ou Linha
+    if temporal_cols > 0 and num_cols >= 2:
+        return "Area"
+    if temporal_cols > 0:
         return "Line"
+    # Muitas métricas + 1 categoria → Radar
+    if num_cols >= 3 and cat_cols == 1:
+        return "Radar"
+    # Hierárquico + 1 num → TreeMap
+    if hierarchical and num_cols == 1:
+        return "TreeMap"
+    # 2 categorias + 1 num → Tabela Dinâmica
+    if cat_cols >= 2 and num_cols >= 1:
+        return "PivotTable"
+    # 2+ numéricos sem categoria → Scatter
+    if num_cols >= 2 and cat_cols == 0:
+        return "Scatter"
+    # 1 num pura (sem cat, sem temporal) → KPI
+    if num_cols == 1 and cat_cols == 0 and temporal_cols == 0:
+        return "KPI"
+    # Distribuição contínua de 1 num → Histograma
+    if num_cols == 1 and cat_cols == 0:
+        return "Histograma"
+    # 1 cat + 1 num: Pareto (poucos itens, baixa correlação) ou Pie (cardinalidade mínima)
+    if num_cols == 1 and cat_cols == 1:
+        if avg_cardinality <= 8 and corr_strength < 0.3:
+            return "Pie"
+        if avg_cardinality <= 20 and corr_strength < 0.2:
+            return "Pareto"
+    # Correlação alta entre 2 cats → Heatmap
+    if cat_cols >= 2 and corr_strength >= 0.6:
+        return "Heatmap"
+    # Fallback
     return "Bar"
 

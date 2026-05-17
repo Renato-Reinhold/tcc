@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import type { ProcessedData } from "@/pages/Index";
+import { colTypeLabel, colTypeClass } from "@/lib/inferColumnType";
 
 interface FilterRow {
   id: number;
@@ -102,7 +103,7 @@ interface TableNodeData {
   label: string;
   columns: Array<{
     name: string;
-    type: 'text' | 'number' | 'date';
+    type: string;
   }>;
   recordCount: number;
   selectedColumns?: Set<string>;
@@ -195,13 +196,9 @@ const TableNode = ({ data }: { data: TableNodeData }) => {
                 </div>
                 <Badge 
                   variant="outline" 
-                  className={`text-xs px-1 py-0 flex-shrink-0 ${
-                    column.type === 'number' ? 'bg-chart-2/10 text-chart-2 border-chart-2/30' :
-                    column.type === 'date' ? 'bg-chart-3/10 text-chart-3 border-chart-3/30' :
-                    'bg-chart-1/10 text-chart-1 border-chart-1/30'
-                  }`}
+                  className={`text-xs px-1 py-0 flex-shrink-0 ${colTypeClass(column.type)}`}
                 >
-                  {column.type}
+                  {colTypeLabel(column.type)}
                 </Badge>
               </button>
             );
@@ -274,6 +271,7 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
     if (!col) return false;
     const t = col.type.toUpperCase();
     return (
+      t === 'NUMBER' || // file-inferred type
       t.includes('INT') || t.includes('NUMERIC') || t.includes('DECIMAL') ||
       t.includes('FLOAT') || t.includes('DOUBLE') || t.includes('REAL') || t.includes('MONEY')
     );
@@ -282,7 +280,7 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
   const isDateCol = useCallback((colName: string) => {
     const col = allSelectedCols.find((c) => c.name === colName);
     const t = col?.type.toUpperCase() ?? '';
-    return t.includes('DATE') || t.includes('TIMESTAMP') || t.includes('TIME');
+    return t === 'DATE' || t.includes('DATE') || t.includes('TIMESTAMP') || t.includes('TIME');
   }, [allSelectedCols]);
 
   // All tables that have at least one selected column
@@ -445,11 +443,23 @@ export const DatabaseDiagram = ({ data, onTableSelect, onViewTableData, onGenera
           },
           data: {
             label: table.name,
-            columns: table.columns.map((col: any) => ({
-              name: col.name,
-              type: col.type === 'INTEGER' || col.type === 'NUMERIC' ? 'number' : 
-                    col.type === 'DATE' || col.type === 'TIMESTAMP' ? 'date' : 'text'
-            })),
+            columns: table.columns.map((col: any) => {
+              const raw: string = col.type ?? 'text';
+              // Already a normalized FileColType — pass through unchanged
+              if (raw === 'number' || raw === 'date' || raw === 'boolean' || raw === 'geo' || raw === 'text') {
+                return { name: col.name, type: raw };
+              }
+              // SQL type from DB metadata — convert to display type
+              const up = raw.toUpperCase();
+              const mapped =
+                (up.includes('INT') || up.includes('NUMERIC') || up.includes('DECIMAL') ||
+                 up.includes('FLOAT') || up.includes('DOUBLE') || up.includes('REAL') || up.includes('MONEY'))
+                  ? 'number'
+                : (up.includes('DATE') || up.includes('TIMESTAMP') || up.includes('TIME'))
+                  ? 'date'
+                : 'text';
+              return { name: col.name, type: mapped };
+            }),
             recordCount: table.record_count || table.row_count || 0,
             selectedColumns: tableSelections[table.name] || new Set(),
             tableDisabled: false,

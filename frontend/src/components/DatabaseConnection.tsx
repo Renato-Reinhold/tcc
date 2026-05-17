@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Database, CheckCircle } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import type { ProcessedData } from "@/pages/Index";
@@ -32,11 +33,12 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
   const [supportedDatabases, setSupportedDatabases] = useState<SupportedDatabase[]>([]);
   const [selectedDbType, setSelectedDbType] = useState<string>('postgresql');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   
-  const [customHost, setCustomHost] = useState('localhost');
-  const [customPort, setCustomPort] = useState('5432');
+  const [customHost, setCustomHost] = useState('');
+  const [customPort, setCustomPort] = useState('');
   const [customDatabase, setCustomDatabase] = useState('');
-  const [customUser, setCustomUser] = useState('postgres');
+  const [customUser, setCustomUser] = useState('');
   const [customPassword, setCustomPassword] = useState('');
 
   useEffect(() => {
@@ -68,51 +70,76 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
       setCustomUser('');
       setCustomPassword('');
       setCustomHost('');
-    } else {
-      if (!customHost) setCustomHost('localhost');
-      if (!customUser) setCustomUser('postgres');
+      setCustomPort('');
     }
   };
 
 
+  const buildConnectionPayload = () => ({
+    db_type: selectedDbType,
+    host: selectedDbType !== 'sqlite' ? customHost : undefined,
+    port: selectedDbType !== 'sqlite' ? customPort : undefined,
+    database: customDatabase,
+    user: selectedDbType !== 'sqlite' ? customUser : undefined,
+    password: selectedDbType !== 'sqlite' ? customPassword : undefined,
+  });
+
+  const validateFields = (): boolean => {
+    if (!customDatabase) {
+      toast({
+        title: "Campo obrigatório",
+        description: "O nome do banco de dados é obrigatório.",
+        variant: "destructive"
+      });
+      return false;
+    }
+    if (selectedDbType !== 'sqlite' && (!customHost || !customUser)) {
+      toast({
+        title: "Campos obrigatórios",
+        description: "Host e usuário são obrigatórios.",
+        variant: "destructive"
+      });
+      return false;
+    }
+    return true;
+  };
+
+  const handleTestConnection = async () => {
+    if (!validateFields()) return;
+    setIsTesting(true);
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+      const response = await fetch(`${backendUrl}/viz/databases/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildConnectionPayload())
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Falha ao conectar com o banco de dados");
+      }
+      toast({
+        title: "Conexão bem-sucedida!",
+        description: `Conexão com ${selectedDbType} testada com sucesso.`
+      });
+    } catch (error: any) {
+      toast({
+        title: "Falha na conexão",
+        description: error.message || "Não foi possível conectar ao banco de dados.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const handleCustomConnection = async () => {
+    if (!validateFields()) return;
     setIsConnecting(true);
 
     try {
-      if (!customDatabase) {
-        toast({
-          title: "Campo obrigatório",
-          description: "Database é obrigatório",
-          variant: "destructive"
-        });
-        setIsConnecting(false);
-        return;
-      }
-
-      if (!customDatabase || (selectedDbType !== 'sqlite' && (!customHost || !customUser))) {
-        toast({
-          title: "Campos obrigatórios",
-          description: "Host e usuário são obrigatórios",
-          variant: "destructive"
-        });
-        setIsConnecting(false);
-        return;
-      }
-      
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-      
-      let connectionHost = customHost;
-      if (selectedDbType !== 'sqlite' && (customHost === 'localhost' || customHost === '127.0.0.1')) {
-        connectionHost = 'backend-db';
-      }
-      const connectionPayload = {
-        db_type: selectedDbType,
-        host: selectedDbType !== 'sqlite' ? connectionHost : undefined,
-        port: selectedDbType !== 'sqlite' ? customPort : undefined,
-        database: customDatabase,
-        user: selectedDbType !== 'sqlite' ? customUser : undefined,
-        password: selectedDbType !== 'sqlite' ? customPassword : undefined
-      };
+      const connectionPayload = buildConnectionPayload();
 
       const connectionResponse = await fetch(`${backendUrl}/viz/databases/connect`, {
         method: 'POST',
@@ -220,34 +247,23 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <Label className="text-base font-medium">Tipo de Banco de Dados *</Label>
-                <div className="flex flex-col gap-2">
-                  {supportedDatabases.map(db => {
-                    const isSelected = selectedDbType === db.type;
-                    return (
-                      <button
-                        key={db.type}
-                        type="button"
-                        onClick={() => handleDatabaseTypeChange(db.type)}
-                        className={`flex items-center gap-4 rounded-lg border-2 px-4 py-3 text-left transition-all duration-200 hover:border-primary/60 hover:bg-primary/5 focus:outline-none ${
-                          isSelected
-                            ? 'border-primary bg-primary/10 shadow-sm'
-                            : 'border-border bg-card'
-                        }`}
-                      >
-                        <span className="text-2xl leading-none">{DB_ICONS[db.type] ?? '🗄️'}</span>
-                        <div className="flex-1 min-w-0">
-                          <span className={`block text-sm font-semibold ${isSelected ? 'text-primary' : 'text-foreground'}`}>{db.name}</span>
-                          <span className="block text-xs text-muted-foreground">{db.description}</span>
-                        </div>
-                        {isSelected && (
-                          <CheckCircle className="h-4 w-4 text-primary flex-shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="db-type">Tipo de Banco de Dados *</Label>
+                <Select value={selectedDbType} onValueChange={handleDatabaseTypeChange}>
+                  <SelectTrigger id="db-type">
+                    <SelectValue placeholder="Selecione o banco de dados" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supportedDatabases.map(db => (
+                      <SelectItem key={db.type} value={db.type}>
+                        <span className="flex items-center gap-2">
+                          <span>{DB_ICONS[db.type] ?? '🗄️'}</span>
+                          <span>{db.name}</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 {selectedDbType !== 'sqlite' && (
                 <div className="grid grid-cols-2 gap-4">
@@ -257,11 +273,8 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                       id="host"
                       value={customHost}
                       onChange={(e) => setCustomHost(e.target.value)}
-                      placeholder="localhost ou backend-db"
+                      placeholder="endereço do servidor"
                     />
-                    <p className="text-xs text-muted-foreground">
-                      Use "backend-db" para PostgreSQL em Docker
-                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="port">Porta</Label>
@@ -269,7 +282,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                       id="port"
                       value={customPort}
                       onChange={(e) => setCustomPort(e.target.value)}
-                      placeholder={supportedDatabases.find(db => db.type === selectedDbType)?.default_port || "5432"}
+                      placeholder="porta"
                     />
                   </div>
                 </div>
@@ -281,7 +294,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                   id="database"
                   value={customDatabase}
                   onChange={(e) => setCustomDatabase(e.target.value)}
-                  placeholder={selectedDbType === 'sqlite' ? 'database.db' : 'nome_banco'}
+                  placeholder={selectedDbType === 'sqlite' ? 'caminho do arquivo .db' : 'nome do banco de dados'}
                 />
               </div>
 
@@ -293,7 +306,7 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                       id="user"
                       value={customUser}
                       onChange={(e) => setCustomUser(e.target.value)}
-                      placeholder="postgres"
+                      placeholder="nome de usuário"
                     />
                   </div>
                   <div className="space-y-2">
@@ -308,32 +321,61 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
                   </div>
                 </div>
               )}
-<Button 
-                className="w-full" 
-                size="lg"
-                onClick={handleCustomConnection}
-                disabled={isConnecting}
-              >
-                {isConnecting ? (
-                  <motion.div
-                    className="flex items-center gap-2"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
+<div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  size="lg"
+                  onClick={handleTestConnection}
+                  disabled={isTesting || isConnecting}
+                >
+                  {isTesting ? (
                     <motion.div
-                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    />
-                    Conectando...
-                  </motion.div>
-                ) : (
-                  <>
-                    <Database className="h-4 w-4 mr-2" />
-                    Testar Conexão
-                  </>
-                )}
-              </Button>
+                      className="flex items-center gap-2"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <motion.div
+                        className="w-4 h-4 border-2 border-current border-t-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      />
+                      Testando...
+                    </motion.div>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Testar Conexão
+                    </>
+                  )}
+                </Button>
+                <Button
+                  className="flex-1"
+                  size="lg"
+                  onClick={handleCustomConnection}
+                  disabled={isConnecting || isTesting}
+                >
+                  {isConnecting ? (
+                    <motion.div
+                      className="flex items-center gap-2"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <motion.div
+                        className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      />
+                      Conectando...
+                    </motion.div>
+                  ) : (
+                    <>
+                      <Database className="h-4 w-4 mr-2" />
+                      Conectar
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </motion.div>

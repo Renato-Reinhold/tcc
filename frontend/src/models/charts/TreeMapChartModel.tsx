@@ -82,5 +82,6 @@ export const TreeMapChartModel: ChartModel = {
   description: "Hierarquia proporcional ao valor",
   icon: "🗺️",
   minColumns: 2,
+  cardinality: { min: 3, max: 100 },
   render,
 };

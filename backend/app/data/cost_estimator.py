@@ -34,12 +34,10 @@ class CostEstimator:
 
         cost = self.FULL_SCAN_BASE
 
-        # Escala pelo tamanho da tabela (log para evitar dominância numérica)
         if table_row_counts and table in table_row_counts:
             row_count = max(table_row_counts[table], 1)
             cost += math.log10(row_count) * self.ROW_COUNT_LOG_FACTOR
 
-        # Custo dos filtros relevantes a esta tabela
         relevant_filters = [f for f in filters if f.startswith(table + ".")]
         unindexed_count = 0
 
@@ -58,11 +56,9 @@ class CostEstimator:
             else:
                 cost += self.INDEXED_FILTER_COST
 
-        # Penalidade composta: múltiplos filtros sem índice forçam reavaliação
         if unindexed_count > 1:
             cost += (unindexed_count - 1) * self.COMPOUND_UNINDEXED_PENALTY
 
-        # Custo de joins necessários para chegar à tabela
         cost += join_distance * self.JOIN_HOP_COST
 
 
