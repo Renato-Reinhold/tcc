@@ -29,14 +29,23 @@ interface SupportedDatabase {
   description: string;
 }
 
+// Static fallback so the dropdown is never empty even when the API is unreachable
+const FALLBACK_DATABASES: SupportedDatabase[] = [
+  { type: 'postgresql', name: 'PostgreSQL',   default_port: '5432', description: 'PostgreSQL' },
+  { type: 'mysql',      name: 'MySQL',         default_port: '3306', description: 'MySQL' },
+  { type: 'mssql',      name: 'SQL Server',    default_port: '1433', description: 'Microsoft SQL Server' },
+  { type: 'sqlite',     name: 'SQLite',        default_port: null,   description: 'SQLite' },
+  { type: 'oracle',     name: 'Oracle',        default_port: '1521', description: 'Oracle Database' },
+];
+
 export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseConnectionProps) => {
-  const [supportedDatabases, setSupportedDatabases] = useState<SupportedDatabase[]>([]);
+  const [supportedDatabases, setSupportedDatabases] = useState<SupportedDatabase[]>(FALLBACK_DATABASES);
   const [selectedDbType, setSelectedDbType] = useState<string>('postgresql');
   const [isConnecting, setIsConnecting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   
   const [customHost, setCustomHost] = useState('');
-  const [customPort, setCustomPort] = useState('');
+  const [customPort, setCustomPort] = useState('5432');
   const [customDatabase, setCustomDatabase] = useState('');
   const [customUser, setCustomUser] = useState('');
   const [customPassword, setCustomPassword] = useState('');
@@ -47,13 +56,18 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
         const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'}/viz/databases/supported`);
         if (response.ok) {
           const data = await response.json();
-          setSupportedDatabases(data.supported);
-          const selectedDb = data.supported.find((db: SupportedDatabase) => db.type === selectedDbType);
+          if (Array.isArray(data.supported) && data.supported.length > 0) {
+            setSupportedDatabases(data.supported);
+          }
+          const selectedDb = (data.supported ?? FALLBACK_DATABASES).find(
+            (db: SupportedDatabase) => db.type === selectedDbType
+          );
           if (selectedDb?.default_port) {
             setCustomPort(selectedDb.default_port);
           }
         }
-      } catch (error) {
+      } catch {
+        // Keep the FALLBACK_DATABASES already in state
       }
     };
     
