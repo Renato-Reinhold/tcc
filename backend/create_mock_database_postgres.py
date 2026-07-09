@@ -10,13 +10,13 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 
 # Configuração do banco
-DB_HOST = os.getenv("DB_HOST", "backend-db")
-DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "tcc_db")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_HOST = os.getenv("DB_HOST") or os.getenv("PGHOST") or "backend-db"
+DB_PORT = os.getenv("DB_PORT") or os.getenv("PGPORT") or "5432"
+DB_NAME = os.getenv("DB_NAME") or os.getenv("PGDATABASE") or "tcc_db"
+DB_USER = os.getenv("DB_USER") or os.getenv("PGUSER") or "postgres"
+DB_PASSWORD = os.getenv("DB_PASSWORD") or os.getenv("PGPASSWORD") or "postgres"
 
-DB_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+DB_URL = os.getenv("DATABASE_URL") or f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 def create_mock_database():
     """Cria banco de dados PostgreSQL mockado com tabelas e dados"""

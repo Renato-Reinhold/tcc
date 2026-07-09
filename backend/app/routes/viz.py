@@ -464,31 +464,23 @@ def _build_join_clauses(connector: DatabaseConnector, base_table: str, extra_tab
 
 @router.post("/execute")
 async def execute_query(query_req: QueryModelRequest):
-    """
-    Fluxo Principal:
-    QueryModel → ChartQueryBuilder (SQL/Pandas) → DataFrame → Recomendação de Gráfico
-
-    O campo `chart_type` determina a forma dos dados retornados:
-      - bar/column : GROUP BY x, AGG(y) DESC  LIMIT 30
-      - line/area  : GROUP BY x, AGG(y) ASC   (série temporal ordenada)
-      - scatter    : SELECT x, y raw           LIMIT 500
-      - pie        : GROUP BY x, AGG(y) DESC   LIMIT 8
-      - histogram  : SELECT x raw              LIMIT 2000
-      - heatmap    : GROUP BY x, y, AGG(z)
-      - treemap    : GROUP BY x, AGG(y) DESC   LIMIT 50
-      - pareto     : GROUP BY x, AGG(y) DESC + cumulative_pct
-      - kpi        : SELECT AGG(y) AS value    (escalar)
-      - pivottable : GROUP BY x, y, AGG(z)
-      - radar      : GROUP BY x, AGG(y)        LIMIT 8
-      - map        : GROUP BY geo, AGG(y) DESC LIMIT 200
-      - table      : SELECT * LIMIT 100
-    """
     start_time = time.time()
 
     try:
+        chart_type = None
+        if query_req.chart_type:
+            chart_type = normalize_chart_type(query_req.chart_type)
+        else:
+            pre_metadata = _build_metadata_from_request(
+                query_req.group_by,
+                query_req.aggregations or [],
+                query_req.z_column,
+            )
+            top1 = recommend_chart_top_k(pre_metadata, k=1)
+            chart_type = normalize_chart_type(top1[0]["chart_type"])
+
         # ── Parse request fields ─────────────────────────────────────────────
-        chart_type = normalize_chart_type(query_req.chart_type or "bar")
-        group_by_cols = query_req.group_by  # full list — used for multi-col SQL
+        group_by_cols = query_req.group_by
         x_col = group_by_cols[0] if group_by_cols else ""
         z_col = query_req.z_column
 
@@ -845,7 +837,7 @@ async def get_table_data(table_name: str, limit: int = 100, offset: int = 0):
             
             # Buscar dados da tabela
             query = f'SELECT * FROM "{table_name}" LIMIT {int(limit)} OFFSET {int(offset)}'
-            print(f"[DEBUG] Executando query")
+            print("[DEBUG] Executando query")
             
             result = connection.execute(text(query))
             rows = result.fetchall()
@@ -884,6 +876,33 @@ async def get_table_data(table_name: str, limit: int = 100, offset: int = 0):
 
 
 # ============ Funções Auxiliares ============
+
+def _build_metadata_from_request(group_by: List[str], aggregations: List[AggregationRequest], z_column: Optional[str]) -> dict:
+    """Infere features do modelo a partir dos campos da requisição, sem precisar do DataFrame.
+    Usada para recomendar o tipo de gráfico ANTES de executar a query."""
+    temporal_keywords = ["date", "time", "year", "month", "day", "hora", "data"]
+
+    agg_fields = [a.field if hasattr(a, 'field') else a.get('field', '') for a in (aggregations or [])]
+    all_cols = list(group_by) + agg_fields + ([z_column] if z_column else [])
+
+    temporal_cols = [c for c in all_cols if any(kw in c.lower() for kw in temporal_keywords)]
+    num_cols = agg_fields  # colunas de agregação são numéricas por definição
+    cat_cols = [c for c in group_by if c not in temporal_cols]
+
+    total = len(all_cols) or 1
+    return {
+        "num_cols": len(num_cols),
+        "cat_cols": len(cat_cols),
+        "temporal_cols": len(temporal_cols),
+        "avg_cardinality": 10.0,        # desconhecido antes da query; valor neutro
+        "corr_strength": 0.0,
+        "pct_nulls": 0.0,
+        "numeric_cardinality_mean": 50.0,
+        "contains_geo": int(any(kw in c.lower() for c in all_cols for kw in ["geo", "lat", "lon", "city", "country", "estado", "cidade", "pais"])),
+        "hierarchical_cat": 0,
+        "numeric_ratio": len(num_cols) / total,
+    }
+
 
 def _build_metadata_for_model(df: pd.DataFrame, columns: List[str]) -> dict:
     """Extrai features numéricas do DataFrame para alimentar o modelo ML."""

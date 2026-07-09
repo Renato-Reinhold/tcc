@@ -1,4 +1,4 @@
-from app.data.relationship_graph import find_join_path
+from app.data.relationship_graph import find_join_path, _find_join_path_dijkstra
 from app.data.chart_query_builder import ChartQueryBuilder, _build_filter_clauses
 
 
@@ -16,12 +16,7 @@ class SQLGenerator:
         index_metadata=None,
         table_row_counts=None,
     ):
-        """Generate chart-type-aware SQL from a QueryModel.
 
-        Quando *cost_estimator* é fornecido, o caminho de JOINs é resolvido
-        via Dijkstra ponderado pelo custo estimado de cada tabela; caso
-        contrário, usa BFS (menor número de JOINs).
-        """
         chart_type = getattr(query, "chart_type", "bar")
 
         x_col = query.group_by[0] if query.group_by else base_table
@@ -34,10 +29,8 @@ class SQLGenerator:
             y_col = agg["field"] if isinstance(agg, dict) else agg.field
             agg_func = (agg["func"] if isinstance(agg, dict) else agg.func) or "sum"
 
-        # Constrói strings "tabela.coluna" para repassar ao estimador de custo
         filter_strings = _extract_filter_strings(query.filters or [])
 
-        # Build JOIN clauses from relationship graph (optional)
         joins_parts = []
         used_tables = {base_table}
         if graph is not None:

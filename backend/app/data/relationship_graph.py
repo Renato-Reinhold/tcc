@@ -25,12 +25,7 @@ def find_join_path(
     indexes=None,
     table_row_counts=None,
 ):
-    """Retorna o caminho de JOINs entre *start* e *end*.
-
-    Quando *cost_estimator* é fornecido, usa Dijkstra com pesos estimados
-    pelo CostEstimator para minimizar o custo de execução dos JOINs.
-    Sem estimador, cai no BFS clássico que minimiza o número de JOINs.
-    """
+ 
     if cost_estimator is not None:
         return _find_join_path_dijkstra(
             graph,
@@ -42,7 +37,6 @@ def find_join_path(
             table_row_counts,
         )
 
-    # BFS — garante caminho com menor número de JOINs em grafo não ponderado
     queue = deque([(start, [])])
     visited = set()
 
@@ -72,12 +66,6 @@ def _find_join_path_dijkstra(
     indexes,
     table_row_counts,
 ):
-    """Dijkstra sobre o grafo de FKs usando o CostEstimator como função de peso.
-
-    O peso de cada aresta (A → B) é o custo estimado de acessar a tabela B
-    considerando sua cardinalidade, índices disponíveis e histórico de execução.
-    O algoritmo garante o caminho de menor custo acumulado (O((V+E) log V)).
-    """
     # heap entries: (custo_acumulado, tie_breaker, tabela_atual, caminho)
     counter = 0
     heap = [(0.0, counter, start, [])]

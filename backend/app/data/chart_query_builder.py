@@ -53,12 +53,6 @@ def normalize_chart_type(chart_type: str) -> str:
     t = (chart_type or "bar").lower().strip()
     return _CHART_ALIASES.get(t, t)
 
-
-# ── Safety cap for raw (non-aggregated) Pandas methods ───────────────────────
-# Aggregated methods (bar, line, pie, …) do not need a cap because GROUP BY
-# already bounds the row count to the column's cardinality.
-# Raw methods (scatter, histogram) use random sampling up to this limit so
-# the result is representative rather than positionally biased.
 _RAW_SAMPLE_ROWS = 50_000
 
 
