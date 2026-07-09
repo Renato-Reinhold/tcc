@@ -12,7 +12,9 @@ RUN npm install
 # Copiar código-fonte
 COPY . .
 
-# Build para produção
+# Build para produção com variáveis de ambiente
+ARG VITE_BACKEND_URL=http://localhost:8000
+ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
 RUN npm run build
 
 # Etapa 2: Runtime - Desenvolvimento com Vite (para dev)
@@ -44,3 +46,4 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
+
