@@ -81,6 +81,148 @@ class ExecutionResponse(BaseModel):
 # Armazenar conexão ativa
 _active_connector: Optional[DatabaseConnector] = None
 
+
+def _build_table_metadata(connector: DatabaseConnector, tables: List[str]):
+    """Coletar tabelas, colunas e contagem de registros."""
+    table_metadata = []
+
+    for table_name in tables:
+        columns = connector.get_table_columns(table_name)
+
+        try:
+            count_query = f"SELECT COUNT(*) FROM {table_name}"
+            count_result = connector.execute_query(count_query)
+            record_count = int(count_result.iloc[0, 0]) if len(count_result) > 0 else 0
+        except Exception as e:
+            print(f"[WARN] Erro ao contar registros de {table_name}: {e}")
+            record_count = 0
+
+        table_metadata.append({
+            "name": table_name,
+            "columns": columns,
+            "row_count": record_count,
+            "record_count": record_count,
+        })
+
+    return table_metadata
+
+
+def _build_fk_relationships(connector: DatabaseConnector, tables: List[str]):
+    """Coletar relacionamentos explícitos por chaves estrangeiras."""
+    relationships = []
+    fk_pairs = set()
+
+    for tname in tables:
+        try:
+            fks = connector.get_foreign_keys(tname)
+            for fk in fks:
+                if fk.get('constrained_columns') and fk.get('referred_columns'):
+                    relationships.append({
+                        'source_table': tname,
+                        'source_column': fk['constrained_columns'][0],
+                        'target_table': fk['referred_table'],
+                        'target_column': fk['referred_columns'][0],
+                        'type': 'fk'
+                    })
+                    fk_pairs.add((tname, fk['referred_table']))
+                    fk_pairs.add((fk['referred_table'], tname))
+        except Exception as e:
+            print(f"[WARN] FK para {tname}: {e}")
+
+    return relationships, fk_pairs
+
+
+def _build_index_relationships(
+    connector: DatabaseConnector,
+    tables: List[str],
+    primary_keys: dict[str, List[str]],
+    fk_pairs: set,
+):
+    """Coletar relacionamentos inferidos por índices."""
+    relationships = []
+
+    for tname in tables:
+        relationships.extend(
+            _build_index_relationships_for_table(
+                connector,
+                tname,
+                tables,
+                primary_keys,
+                fk_pairs,
+            )
+        )
+
+    return relationships
+
+
+def _build_index_relationships_for_table(
+    connector: DatabaseConnector,
+    table_name: str,
+    tables: List[str],
+    primary_keys: dict[str, List[str]],
+    fk_pairs: set,
+):
+    """Coletar relacionamentos por índice para uma tabela específica."""
+    relationships = []
+
+    try:
+        indexes = connector.get_indexes(table_name)
+        for idx in indexes:
+            for col in idx.get('column_names', []):
+                for other in tables:
+                    relationship = _maybe_build_index_relationship(
+                        table_name,
+                        other,
+                        col,
+                        primary_keys,
+                        fk_pairs,
+                    )
+                    if relationship:
+                        relationships.append(relationship)
+    except Exception as e:
+        print(f"[WARN] Indexes para {table_name}: {e}")
+
+    return relationships
+
+
+def _maybe_build_index_relationship(
+    table_name: str,
+    other_table: str,
+    column_name: str,
+    primary_keys: dict[str, List[str]],
+    fk_pairs: set,
+):
+    """Decidir se um índice sugere um relacionamento entre duas tabelas."""
+    if other_table == table_name:
+        return None
+    if column_name not in primary_keys.get(other_table, []):
+        return None
+    if (table_name, other_table) in fk_pairs:
+        return None
+
+    fk_pairs.add((table_name, other_table))
+    return {
+        'source_table': table_name,
+        'source_column': column_name,
+        'target_table': other_table,
+        'target_column': column_name,
+        'type': 'index'
+    }
+
+
+def _build_connected_database_metadata(connector: DatabaseConnector):
+    """Coletar tabelas, colunas, contagem e relacionamentos do conector ativo."""
+    tables = connector.get_tables()
+    table_metadata = _build_table_metadata(connector, tables)
+    primary_keys = {tname: connector.get_primary_key_columns(tname) for tname in tables}
+    fk_relationships, fk_pairs = _build_fk_relationships(connector, tables)
+    index_relationships = _build_index_relationships(connector, tables, primary_keys, fk_pairs)
+
+    return {
+        "tables": table_metadata,
+        "relationships": fk_relationships + index_relationships,
+    }
+
 @router.get("/databases/supported")
 async def get_supported_databases():
     """Retornar lista de bancos de dados suportados"""
@@ -158,12 +300,16 @@ async def connect_database(request: DatabaseConnectionRequest):
         # Salvar como conexão ativa
         _active_connector = connector
         print(f"[DEBUG] Conector salvo como ativo: {_active_connector is not None}")
+
+        metadata = _build_connected_database_metadata(connector)
         
         return {
             "success": True,
             "message": "Conectado com sucesso",
             "db_type": request.db_type,
-            "database": request.database
+            "database": request.database,
+            "tables": metadata["tables"],
+            "relationships": metadata["relationships"],
         }
         
     except Exception as e:
@@ -187,80 +333,13 @@ async def get_connected_tables():
         )
     
     try:
-        tables = _active_connector.get_tables()
-        
-        # Obter metadados das tabelas
-        table_metadata = []
-        for table_name in tables:
-            columns = _active_connector.get_table_columns(table_name)
-            
-            # Obter contagem de registros
-            try:
-                count_query = f"SELECT COUNT(*) FROM {table_name}"
-                count_result = _active_connector.execute_query(count_query)
-                record_count = int(count_result.iloc[0, 0]) if len(count_result) > 0 else 0
-            except Exception as e:
-                print(f"[WARN] Erro ao contar registros de {table_name}: {e}")
-                record_count = 0
-            
-            table_metadata.append({
-                "name": table_name,
-                "columns": columns,
-                "row_count": record_count,
-                "record_count": record_count
-            })
+        metadata = _build_connected_database_metadata(_active_connector)
 
-        # Collect primary keys for index relationship detection
-        primary_keys = {}
-        for tname in tables:
-            primary_keys[tname] = _active_connector.get_primary_key_columns(tname)
-
-        # Build relationships (FK + index-based)
-        relationships = []
-        fk_pairs = set()
-
-        for tname in tables:
-            try:
-                fks = _active_connector.get_foreign_keys(tname)
-                for fk in fks:
-                    if fk.get('constrained_columns') and fk.get('referred_columns'):
-                        relationships.append({
-                            'source_table': tname,
-                            'source_column': fk['constrained_columns'][0],
-                            'target_table': fk['referred_table'],
-                            'target_column': fk['referred_columns'][0],
-                            'type': 'fk'
-                        })
-                        fk_pairs.add((tname, fk['referred_table']))
-                        fk_pairs.add((fk['referred_table'], tname))
-            except Exception as e:
-                print(f"[WARN] FK para {tname}: {e}")
-
-        for tname in tables:
-            try:
-                indexes = _active_connector.get_indexes(tname)
-                for idx in indexes:
-                    for col in idx.get('column_names', []):
-                        for other in tables:
-                            if other == tname:
-                                continue
-                            if col in primary_keys.get(other, []) and (tname, other) not in fk_pairs:
-                                relationships.append({
-                                    'source_table': tname,
-                                    'source_column': col,
-                                    'target_table': other,
-                                    'target_column': col,
-                                    'type': 'index'
-                                })
-                                fk_pairs.add((tname, other))
-            except Exception as e:
-                print(f"[WARN] Indexes para {tname}: {e}")
-
-        print(f"[DEBUG] Retornando {len(table_metadata)} tabelas e {len(relationships)} relacionamentos")
+        print(f"[DEBUG] Retornando {len(metadata['tables'])} tabelas e {len(metadata['relationships'])} relacionamentos")
 
         return {
-            "tables": table_metadata,
-            "relationships": relationships
+            "tables": metadata["tables"],
+            "relationships": metadata["relationships"]
         }
     except Exception as e:
         raise HTTPException(

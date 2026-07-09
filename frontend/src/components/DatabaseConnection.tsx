@@ -167,14 +167,20 @@ export const DatabaseConnection = ({ onDataUploaded, onBackToSource }: DatabaseC
       }
 
       const connectionData = await connectionResponse.json();
+      const tablesData = connectionData.tables
+        ? {
+            tables: connectionData.tables,
+            relationships: connectionData.relationships || [],
+          }
+        : await (async () => {
+            const tablesResponse = await fetch(`${backendUrl}/viz/databases/tables`);
 
-      const tablesResponse = await fetch(`${backendUrl}/viz/databases/tables`);
+            if (!tablesResponse.ok) {
+              throw new Error("Falha ao obter tabelas do banco");
+            }
 
-      if (!tablesResponse.ok) {
-        throw new Error("Falha ao obter tabelas do banco");
-      }
-
-      const tablesData = await tablesResponse.json();
+            return tablesResponse.json();
+          })();
 
       const mockData: ProcessedData = {
         columns: tablesData.tables.map((table: any) => ({
