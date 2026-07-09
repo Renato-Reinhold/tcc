@@ -142,7 +142,14 @@ class PostgreSQLConnector(DatabaseConnector):
     
     def _connect(self):
         try:
-            self.engine = create_engine(self.get_connection_url(), pool_pre_ping=True)
+            self.engine = create_engine(
+                self.get_connection_url(),
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=3600,
+                pool_pre_ping=True,
+                echo=False,
+            )
         except Exception as e:
             print(f"Erro ao conectar PostgreSQL: {e}")
             raise
@@ -162,7 +169,14 @@ class MySQLConnector(DatabaseConnector):
     
     def _connect(self):
         try:
-            self.engine = create_engine(self.get_connection_url(), pool_pre_ping=True)
+            self.engine = create_engine(
+                self.get_connection_url(),
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=3600,
+                pool_pre_ping=True,
+                echo=False,
+            )
         except Exception as e:
             print(f"Erro ao conectar MySQL: {e}")
             raise
@@ -182,7 +196,14 @@ class SQLServerConnector(DatabaseConnector):
     
     def _connect(self):
         try:
-            self.engine = create_engine(self.get_connection_url(), pool_pre_ping=True)
+            self.engine = create_engine(
+                self.get_connection_url(),
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=3600,
+                pool_pre_ping=True,
+                echo=False,
+            )
         except Exception as e:
             print(f"Erro ao conectar SQL Server: {e}")
             raise
@@ -217,7 +238,14 @@ class OracleConnector(DatabaseConnector):
     
     def _connect(self):
         try:
-            self.engine = create_engine(self.get_connection_url(), pool_pre_ping=True)
+            self.engine = create_engine(
+                self.get_connection_url(),
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=3600,
+                pool_pre_ping=True,
+                echo=False,
+            )
         except Exception as e:
             print(f"Erro ao conectar Oracle: {e}")
             raise
