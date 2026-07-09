@@ -17,6 +17,13 @@ DB_USER = os.getenv("DB_USER") or os.getenv("PGUSER") or "postgres"
 DB_PASSWORD = os.getenv("DB_PASSWORD") or os.getenv("PGPASSWORD") or "postgres"
 
 DB_URL = os.getenv("DATABASE_URL") or f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+if (os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID")) and not (os.getenv("DATABASE_URL") or os.getenv("PGHOST") or os.getenv("DB_HOST")):
+    raise RuntimeError(
+        "Railway sem DATABASE_URL/PGHOST configurado para o backend. "
+        "Conecte o serviço Postgres ao serviço Backend no Railway."
+    )
+if "sslmode=" not in DB_URL and (os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID") or DB_HOST.endswith(".railway.internal")):
+    DB_URL = f"{DB_URL}{'&' if '?' in DB_URL else '?'}sslmode=require"
 
 def create_mock_database():
     """Cria banco de dados PostgreSQL mockado com tabelas e dados"""

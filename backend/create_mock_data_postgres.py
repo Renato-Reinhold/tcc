@@ -9,24 +9,45 @@ import os
 from datetime import datetime, timedelta
 import random
 
+
+def _is_railway_environment() -> bool:
+    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+
+
+def _append_sslmode(database_url: str) -> str:
+    if "sslmode=" in database_url:
+        return database_url
+    separator = "&" if "?" in database_url else "?"
+    return f"{database_url}{separator}sslmode=require"
+
 def get_connection():
     """Conecta ao banco de dados PostgreSQL"""
     database_url = os.getenv('DATABASE_URL')
     if database_url:
+        if _is_railway_environment():
+            database_url = _append_sslmode(database_url)
         return psycopg2.connect(database_url)
+
+    if _is_railway_environment() and not (os.getenv('PGHOST') or os.getenv('DB_HOST')):
+        raise RuntimeError(
+            "Railway sem DATABASE_URL/PGHOST configurado para o backend. "
+            "Conecte o serviço Postgres ao serviço Backend no Railway."
+        )
 
     host = os.getenv('DB_HOST') or os.getenv('PGHOST') or 'localhost'
     port = os.getenv('DB_PORT') or os.getenv('PGPORT') or '5432'
     database = os.getenv('DB_NAME') or os.getenv('PGDATABASE') or 'tcc_db'
     user = os.getenv('DB_USER') or os.getenv('PGUSER') or 'postgres'
     password = os.getenv('DB_PASSWORD') or os.getenv('PGPASSWORD') or 'postgres'
+    sslmode = os.getenv('DB_SSLMODE') or ('require' if host.endswith('.railway.internal') or _is_railway_environment() else 'prefer')
     
     return psycopg2.connect(
         host=host,
         port=port,
         database=database,
         user=user,
-        password=password
+        password=password,
+        sslmode=sslmode
     )
 
 def create_tables(cursor):

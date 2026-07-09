@@ -5,6 +5,7 @@ Suporta: PostgreSQL, MySQL, SQL Server, SQLite, Oracle
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
+import os
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
 
@@ -124,15 +125,20 @@ class DatabaseConnector(ABC):
 
 class PostgreSQLConnector(DatabaseConnector):
     """Conector para PostgreSQL"""
-    
+
     def get_connection_url(self) -> str:
         host = self.connection_params.get('host', 'localhost')
         port = self.connection_params.get('port', '5432')
         database = self.connection_params.get('database', 'postgres')
         user = self.connection_params.get('user', 'postgres')
         password = self.connection_params.get('password', '')
-        
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        url = f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        sslmode = self.connection_params.get('sslmode') or os.getenv('DB_SSLMODE')
+        if not sslmode and (host.endswith('.railway.internal') or os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_PROJECT_ID')):
+            sslmode = 'require'
+        if sslmode and 'sslmode=' not in url:
+            url = f"{url}?sslmode={sslmode}"
+        return url
     
     def _connect(self):
         try:
